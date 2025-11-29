@@ -30,7 +30,7 @@ jobs:
         run: flutter pub get
       
       - name: Build web
-        run: flutter build web --release --base-href "/restaurant-app/"
+        run: flutter build web --release --base-href "/restaurant-app/" --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
       
       - name: Setup Pages
         uses: actions/configure-pages@v4
