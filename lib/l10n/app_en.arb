@@ -1,0 +1,345 @@
+{
+  "@@locale": "en",
+  "appName": "FoodArt",
+  "@appName": {
+    "description": "The name of the application"
+  },
+  
+  "welcome": "Welcome to FoodArt",
+  "welcomeSubtitle": "Digitize your restaurant menu with AI-powered videos",
+  
+  "login": "Login",
+  "register": "Register",
+  "email": "Email",
+  "password": "Password",
+  "confirmPassword": "Confirm Password",
+  "forgotPassword": "Forgot Password?",
+  "noAccount": "Don't have an account?",
+  "hasAccount": "Already have an account?",
+  "signUp": "Sign Up",
+  "signIn": "Sign In",
+  "signOut": "Sign Out",
+  "sendMagicLink": "Send Magic Link",
+  "checkEmail": "Check your email for a login link!",
+  
+  "dashboard": "Dashboard",
+  "menu": "Menu",
+  "orders": "Orders",
+  "tables": "Tables",
+  "analytics": "Analytics",
+  "settings": "Settings",
+  
+  "todaysSales": "Today's Sales",
+  "activeOrders": "Active Orders",
+  "totalOrders": "Total Orders",
+  "averageOrderValue": "Avg. Order Value",
+  
+  "categories": "Categories",
+  "addCategory": "Add Category",
+  "editCategory": "Edit Category",
+  "deleteCategory": "Delete Category",
+  "categoryName": "Category Name",
+  
+  "menuItems": "Menu Items",
+  "addItem": "Add Item",
+  "editItem": "Edit Item",
+  "deleteItem": "Delete Item",
+  "itemName": "Item Name",
+  "itemDescription": "Description",
+  "itemPrice": "Price",
+  "itemImage": "Image",
+  "generateVideo": "Generate AI Video",
+  "videoCredits": "Video Credits",
+  "videoProcessing": "Video is being generated...",
+  "videoReady": "Video ready!",
+  
+  "allergens": "Allergens",
+  "dietaryTags": "Dietary Tags",
+  "vegetarian": "Vegetarian",
+  "vegan": "Vegan",
+  "glutenFree": "Gluten-Free",
+  "halal": "Halal",
+  "kosher": "Kosher",
+  "spicy": "Spicy",
+  
+  "table": "Table",
+  "addTable": "Add Table",
+  "tableNumber": "Table Number",
+  "capacity": "Capacity",
+  "generateQR": "Generate QR Code",
+  "downloadQR": "Download QR Code",
+  "printQR": "Print QR Code",
+  
+  "order": "Order",
+  "orderNumber": "Order #{number}",
+  "@orderNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "pending": "Pending",
+  "confirmed": "Confirmed",
+  "preparing": "Preparing",
+  "ready": "Ready",
+  "served": "Served",
+  "completed": "Completed",
+  "cancelled": "Cancelled",
+  "confirmOrder": "Confirm Order",
+  "markReady": "Mark as Ready",
+  "markServed": "Mark as Served",
+  "cancelOrder": "Cancel Order",
+  
+  "payment": "Payment",
+  "unpaid": "Unpaid",
+  "paid": "Paid",
+  "payWithCard": "Pay with Card",
+  "payAtTable": "Pay at Table",
+  "total": "Total",
+  "subtotal": "Subtotal",
+  "tax": "Tax",
+  "closeTable": "Close Table",
+  
+  "selectLanguage": "Select Language",
+  "viewMenu": "View Menu",
+  "addToCart": "Add to Cart",
+  "cart": "Cart",
+  "emptyCart": "Your cart is empty",
+  "placeOrder": "Place Order",
+  "orderPlaced": "Order Placed!",
+  "orderStatus": "Order Status",
+  "specialRequests": "Special Requests",
+  "quantity": "Quantity",
+  
+  "restaurant": "Restaurant",
+  "restaurantName": "Restaurant Name",
+  "branch": "Branch",
+  "branches": "Branches",
+  "addBranch": "Add Branch",
+  
+  "subscription": "Subscription",
+  "currentPlan": "Current Plan",
+  "upgradePlan": "Upgrade Plan",
+  "starter": "Starter",
+  "professional": "Professional",
+  "enterprise": "Enterprise",
+  "perMonth": "/month",
+  
+  "save": "Save",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "edit": "Edit",
+  "confirm": "Confirm",
+  "close": "Close",
+  "back": "Back",
+  "next": "Next",
+  "done": "Done",
+  "loading": "Loading...",
+  "error": "Error",
+  "success": "Success",
+  "retry": "Retry",
+  
+  "noResults": "No results found",
+  "searchPlaceholder": "Search...",
+  
+  "profile": "Profile",
+  "account": "Account",
+  "language": "Language",
+  "notifications": "Notifications",
+  "help": "Help & Support",
+  "about": "About",
+  "version": "Version",
+  "termsOfService": "Terms of Service",
+  "privacyPolicy": "Privacy Policy",
+
+  "orderNotes": "Order Notes",
+  "orderNotesHint": "Add any special instructions for your order...",
+  "cartEmpty": "Your Cart is Empty",
+  "cartEmptyDescription": "Add some delicious items from the menu",
+  "browseMenu": "Browse Menu",
+  "confirmOrderDescription": "Please confirm you want to place this order",
+  "confirmAndOrder": "Confirm & Order",
+  "placingOrder": "Placing your order...",
+  "orderFailed": "Failed to place order",
+  "specialRequestsHint": "E.g., no onions, extra sauce...",
+
+  "orderNotFound": "Order not found",
+  "orderItems": "Order Items",
+  "payAtCounter": "Pay at Counter",
+  "newOrder": "New Order",
+  "orderPendingMessage": "Your order has been received and is waiting for confirmation.",
+  "orderConfirmedMessage": "Great! The kitchen has confirmed your order.",
+  "orderPreparingMessage": "Your delicious food is being prepared!",
+  "orderReadyMessage": "Your order is ready! It will be served shortly.",
+  "orderServedMessage": "Enjoy your meal! Thank you for ordering with us.",
+  "orderCancelledMessage": "This order has been cancelled.",
+
+  "revenue": "Revenue",
+  "activeTableCount": "{count} Active",
+  "@activeTableCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "itemCount": "{count} Items",
+  "@itemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noOrdersToday": "No orders yet today",
+  "startProcessingOrders": "Orders will appear here as customers place them",
+  "allOrdersProcessed": "All orders have been processed",
+  "greatWork": "Great work! Check back for new orders.",
+  "noTablesYet": "No tables configured",
+  "addTablesDescription": "Add tables and generate QR codes for your restaurant",
+  "seats": "{count} seats",
+  "@seats": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "inactive": "Inactive",
+  "branchRequired": "Please create a branch first to add tables",
+
+  "welcomeBack": "Welcome back!",
+  "dashboardSubtitle": "Here's what's happening at your restaurant today.",
+  "todaysOverview": "Today's Overview",
+  "quickActions": "Quick Actions",
+  "recentOrders": "Recent Orders",
+  "viewAll": "View All",
+  "aiInsights": "AI Insights",
+  "aiRecommendations": "AI Recommendations",
+  "customers": "Customers",
+  "avgRating": "Avg. Rating",
+  "tablesOccupied": "Tables Occupied",
+  "aiMenuCreator": "AI Menu Creator",
+  "newAiMenuCreator": "✨ NEW: AI Menu Creator",
+  "createMenuInSeconds": "Create your menu in seconds!",
+  "uploadMenuDescription": "Upload photos of your existing menu and our AI will:",
+  "aiFeature1": "📸 Extract all items & prices automatically",
+  "aiFeature2": "🌍 Translate to 8 languages instantly",
+  "aiFeature3": "📁 Organize into categories",
+  "tryAiMenuCreator": "Try AI Menu Creator",
+  "aiMenu": "AI Menu",
+  "qrCodes": "QR Codes",
+  "newStatus": "New",
+  "trendingDish": "Your \"{dishName}\" is trending! Consider adding similar dishes.",
+  "@trendingDish": {
+    "placeholders": {
+      "dishName": {
+        "type": "String"
+      }
+    }
+  },
+  "peakHours": "Peak hours today: {hours}. Prepare extra staff.",
+  "@peakHours": {
+    "placeholders": {
+      "hours": {
+        "type": "String"
+      }
+    }
+  },
+  "noVideosHint": "{count} menu items don't have videos. Add videos to increase orders by 25%.",
+  "@noVideosHint": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  
+  "staffAndAccess": "Staff & Access",
+  "staffMembers": "Staff Members",
+  "manageStaffAccounts": "Manage staff accounts",
+  "rolesAndPermissions": "Roles & Permissions",
+  "configureAccessLevels": "Configure access levels",
+  "ordersAndMenu": "Orders & Menu",
+  "orderSettings": "Order Settings",
+  "notificationsConfirmationMode": "Notifications, confirmation mode",
+  "menuLanguages": "Menu Languages",
+  "languagesEnabled": "{count} languages enabled",
+  "@languagesEnabled": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "payments": "Payments",
+  "paymentMethods": "Payment Methods",
+  "stripeConnect": "Stripe Connect",
+  "active": "Active",
+  "aiVideos": "AI Videos",
+  "pricePerVideo": "{price} per video",
+  "@pricePerVideo": {
+    "placeholders": {
+      "price": {
+        "type": "String"
+      }
+    }
+  },
+  "videosGenerated": "{count} generated",
+  "@videosGenerated": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pushEmailSms": "Push, email, SMS",
+  "faqContactUs": "FAQ, contact us",
+  "manageRestaurantLocations": "Manage restaurant locations",
+  "requireStaffConfirmation": "Require Staff Confirmation",
+  "staffMustConfirmOrders": "Staff must confirm orders before preparing",
+  "newOrderSound": "New Order Sound",
+  "playOrderSound": "Play sound when new order arrives",
+  "autoAcceptOrders": "Auto-accept Orders",
+  "autoAcceptDescription": "Automatically accept new orders",
+  "selectMenuLanguages": "Select languages available for your menu",
+  "paymentSettings": "Payment Settings",
+  "stripeConnected": "Stripe Connected",
+  "paymentsBeingProcessed": "Payments are being processed",
+  "platformFee": "Platform Fee",
+  "stripeFee": "Stripe Fee",
+  "openStripeDashboard": "Open Stripe Dashboard",
+  "proPlan": "Pro Plan",
+  "nextBilling": "Next billing: {date}",
+  "@nextBilling": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "planFeatures": "Plan Features:",
+  "upToBranches": "Up to {count} branches",
+  "@upToBranches": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "unlimitedMenuItems": "Unlimited menu items",
+  "unlimitedOrders": "Unlimited orders",
+  "advancedAnalytics": "Advanced analytics",
+  "prioritySupport": "Priority support",
+  "changePlan": "Change Plan",
+  "signOutConfirmTitle": "Sign Out",
+  "signOutConfirmMessage": "Are you sure you want to sign out?",
+  "restaurantProfile": "Restaurant Profile",
+  "urlSlug": "URL Slug",
+  "description": "Description",
+  "phone": "Phone",
+  "address": "Address",
+  "saveChanges": "Save Changes",
+  "profileUpdated": "Profile updated"
+}
