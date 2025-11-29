@@ -39,8 +39,9 @@ class AppConfig {
   // ============================================================
   
   // TODO: Add your Gemini API key from https://aistudio.google.com/apikey
+  // For production, use environment variables or a secure backend
   // Leave empty to use demo/mock mode with sample menu data
-  static const String geminiApiKey = 'AIzaSyAm5IpMrsnoRfXNyregkVBNJ7qNF8OKMzs';
+  static const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
   
   // ============================================================
   // DEMO MODE HELPERS
