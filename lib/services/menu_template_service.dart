@@ -113,12 +113,51 @@ class MenuTemplateService {
     await supabase.from('menu_templates').delete().eq('id', id);
   }
 
+  /// Deactivate all templates for a restaurant
+  Future<void> deactivateAllTemplates(String restaurantId) async {
+    await supabase
+        .from('menu_templates')
+        .update({'is_active': false})
+        .eq('restaurant_id', restaurantId);
+  }
+
+  /// Save and immediately activate a template (used by "Use Now")
+  Future<MenuTemplate> saveAndActivateTemplate({
+    required String restaurantId,
+    required String name,
+    String? description,
+    required MenuAnalysisResult analysisResult,
+    required Set<int> selectedItems,
+  }) async {
+    // First deactivate all existing templates
+    await deactivateAllTemplates(restaurantId);
+
+    // Save the template as active
+    final templateData = _convertToTemplateData(analysisResult, selectedItems);
+
+    final response = await supabase.from('menu_templates').insert({
+      'restaurant_id': restaurantId,
+      'name': name,
+      'description': description,
+      'detected_language': analysisResult.detectedLanguage,
+      'detected_language_name': analysisResult.detectedLanguageName,
+      'currency': analysisResult.currency,
+      'template_data': templateData,
+      'is_active': true,
+    }).select().single();
+
+    return MenuTemplate.fromJson(response);
+  }
+
   /// Activate a template - replaces the current menu with this template
   Future<void> activateTemplate({
     required String templateId,
     required String restaurantId,
     required MenuService menuService,
   }) async {
+    // First deactivate all templates
+    await deactivateAllTemplates(restaurantId);
+
     // Get the template
     final response = await supabase
         .from('menu_templates')

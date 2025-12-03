@@ -740,4 +740,67 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get profileUpdated => '资料已更新';
+
+  @override
+  String get filterOrders => '筛选订单';
+
+  @override
+  String get today => '今天';
+
+  @override
+  String get thisWeek => '本周';
+
+  @override
+  String get byTable => '按餐桌';
+
+  @override
+  String noOrdersWithStatus(String status) {
+    return '没有$status订单';
+  }
+
+  @override
+  String items(int count) {
+    return '$count项';
+  }
+
+  @override
+  String get reject => '拒绝';
+
+  @override
+  String get acceptAndStart => '接受并开始';
+
+  @override
+  String get markAsReady => '标记为就绪';
+
+  @override
+  String get complete => '完成';
+
+  @override
+  String get rejectOrder => '拒绝订单';
+
+  @override
+  String rejectOrderConfirm(String orderNumber) {
+    return '您确定要拒绝订单#$orderNumber吗？';
+  }
+
+  @override
+  String orderRejected(String orderNumber) {
+    return '订单#$orderNumber已拒绝';
+  }
+
+  @override
+  String orderStatusUpdated(String orderNumber) {
+    return '订单#$orderNumber状态已更新';
+  }
+
+  @override
+  String get orderDetails => '订单详情';
+
+  @override
+  String note(String note) {
+    return '备注：$note';
+  }
+
+  @override
+  String get acceptAndStartPreparing => '接受并开始准备';
 }

@@ -3,6 +3,66 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'menu.freezed.dart';
 part 'menu.g.dart';
 
+/// Represents a variant/option for a menu item (e.g., Small, Medium, Large)
+@freezed
+class MenuItemVariant with _$MenuItemVariant {
+  const factory MenuItemVariant({
+    required String id,
+    required String itemId,
+    required double price,
+    @Default(0) int sortOrder,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    @Default({}) Map<String, VariantTranslation> translations,
+  }) = _MenuItemVariant;
+
+  factory MenuItemVariant.fromSupabase(Map<String, dynamic> json) {
+    final translations = <String, VariantTranslation>{};
+    final translationsList = json['menu_item_variant_translations'] as List?;
+    if (translationsList != null) {
+      for (final t in translationsList) {
+        final langCode = t['language_code'] as String? ?? 'en';
+        translations[langCode] = VariantTranslation(
+          id: t['id'] as String? ?? '',
+          variantId: t['variant_id'] as String? ?? '',
+          languageCode: langCode,
+          name: t['name'] as String? ?? '',
+        );
+      }
+    }
+
+    return MenuItemVariant(
+      id: json['id'] as String? ?? '',
+      itemId: json['item_id'] as String? ?? '',
+      price: (json['price'] as num?)?.toDouble() ?? 0.0,
+      sortOrder: (json['sort_order'] ?? 0) as int,
+      createdAt: json['created_at'] != null 
+          ? DateTime.parse(json['created_at'] as String) 
+          : DateTime.now(),
+      updatedAt: json['updated_at'] != null 
+          ? DateTime.parse(json['updated_at'] as String) 
+          : DateTime.now(),
+      translations: translations,
+    );
+  }
+
+  factory MenuItemVariant.fromJson(Map<String, dynamic> json) =>
+      _$MenuItemVariantFromJson(json);
+}
+
+@freezed
+class VariantTranslation with _$VariantTranslation {
+  const factory VariantTranslation({
+    required String id,
+    required String variantId,
+    required String languageCode,
+    required String name,
+  }) = _VariantTranslation;
+
+  factory VariantTranslation.fromJson(Map<String, dynamic> json) =>
+      _$VariantTranslationFromJson(json);
+}
+
 @freezed
 class MenuCategory with _$MenuCategory {
   const factory MenuCategory({
@@ -77,6 +137,12 @@ class MenuItem with _$MenuItem {
     required String restaurantId,
     required double price,
     String? imageUrl,
+    // Original uploaded image (stored separately from the display imageUrl)
+    String? originalImageUrl,
+    // AI-generated images stored separately from the original uploaded image
+    @Default([]) List<String> aiGeneratedImages,
+    // Index of the currently selected AI image (-1 means use original imageUrl)
+    @Default(-1) int selectedAiImageIndex,
     String? videoUrl,
     String? videoThumbnailUrl,
     @Default('none') String videoStatus,
@@ -91,6 +157,8 @@ class MenuItem with _$MenuItem {
     required DateTime updatedAt,
     // Translations loaded separately
     @Default({}) Map<String, ItemTranslation> translations,
+    // Variants (size/quantity options with different prices)
+    @Default([]) List<MenuItemVariant> variants,
   }) = _MenuItem;
 
   /// Parse from Supabase snake_case response
@@ -111,6 +179,17 @@ class MenuItem with _$MenuItem {
       }
     }
 
+    // Parse variants from the nested array
+    final variants = <MenuItemVariant>[];
+    final variantsList = json['menu_item_variants'] as List?;
+    if (variantsList != null) {
+      for (final v in variantsList) {
+        variants.add(MenuItemVariant.fromSupabase(v as Map<String, dynamic>));
+      }
+      // Sort by sortOrder
+      variants.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    }
+
     return MenuItem(
       id: json['id'] as String? ?? '',
       categoryId: json['category_id'] as String? ?? '',
@@ -118,6 +197,9 @@ class MenuItem with _$MenuItem {
                     (json['menu_categories'] as Map?)?['restaurant_id'] as String? ?? '',
       price: (json['price'] as num?)?.toDouble() ?? 0.0,
       imageUrl: json['image_url'] as String?,
+      originalImageUrl: json['original_image_url'] as String?,
+      aiGeneratedImages: (json['ai_generated_images'] as List?)?.cast<String>() ?? [],
+      selectedAiImageIndex: json['selected_ai_image_index'] as int? ?? -1,
       videoUrl: json['video_url'] as String?,
       videoThumbnailUrl: json['video_thumbnail_url'] as String?,
       videoStatus: json['video_status'] as String? ?? 'none',
@@ -135,6 +217,7 @@ class MenuItem with _$MenuItem {
           ? DateTime.parse(json['updated_at'] as String) 
           : DateTime.now(),
       translations: translations,
+      variants: variants,
     );
   }
 
@@ -184,6 +267,29 @@ extension MenuItemExtension on MenuItem {
   
   bool get hasVideo => videoStatus == 'ready' && videoUrl != null;
   bool get isVideoProcessing => videoStatus == 'queued' || videoStatus == 'processing';
+  bool get hasVariants => variants.isNotEmpty;
+  
+  /// Get the currently displayed image URL (AI-generated or original)
+  String? get displayImageUrl {
+    if (selectedAiImageIndex >= 0 && selectedAiImageIndex < aiGeneratedImages.length) {
+      return aiGeneratedImages[selectedAiImageIndex];
+    }
+    return imageUrl;
+  }
+  
+  /// Check if using an AI-generated image
+  bool get isUsingAiImage => selectedAiImageIndex >= 0 && selectedAiImageIndex < aiGeneratedImages.length;
+  
+  /// Check if has AI-generated images
+  bool get hasAiImages => aiGeneratedImages.isNotEmpty;
+}
+
+extension MenuItemVariantExtension on MenuItemVariant {
+  String getName(String languageCode) {
+    return translations[languageCode]?.name ?? 
+           translations['en']?.name ?? 
+           'Unnamed Variant';
+  }
 }
 
 // Dietary tag constants

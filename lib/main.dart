@@ -5,6 +5,7 @@ import 'package:flutter_stripe/flutter_stripe.dart';
 
 import 'app.dart';
 import 'core/config/app_config.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +21,9 @@ Future<void> main() async {
     Stripe.publishableKey = AppConfig.stripePublishableKey;
     await Stripe.instance.applySettings();
   }
+
+  // Initialize notification service for background AI processing
+  await NotificationService().initialize();
 
   runApp(
     const ProviderScope(

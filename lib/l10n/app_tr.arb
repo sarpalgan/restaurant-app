@@ -219,5 +219,23 @@
   "phone": "Telefon",
   "address": "Adres",
   "saveChanges": "Değişiklikleri Kaydet",
-  "profileUpdated": "Profil güncellendi"
+  "profileUpdated": "Profil güncellendi",
+
+  "filterOrders": "Siparişleri Filtrele",
+  "today": "Bugün",
+  "thisWeek": "Bu Hafta",
+  "byTable": "Masaya Göre",
+  "noOrdersWithStatus": "{status} durumunda sipariş yok",
+  "items": "{count} öğe",
+  "reject": "Reddet",
+  "acceptAndStart": "Kabul Et ve Başla",
+  "markAsReady": "Hazır Olarak İşaretle",
+  "complete": "Tamamla",
+  "rejectOrder": "Siparişi Reddet",
+  "rejectOrderConfirm": "#{orderNumber} numaralı siparişi reddetmek istediğinizden emin misiniz?",
+  "orderRejected": "#{orderNumber} numaralı sipariş reddedildi",
+  "orderStatusUpdated": "#{orderNumber} numaralı sipariş durumu güncellendi",
+  "orderDetails": "Sipariş Detayları",
+  "note": "Not: {note}",
+  "acceptAndStartPreparing": "Kabul Et ve Hazırlamaya Başla"
 }

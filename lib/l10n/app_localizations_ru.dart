@@ -746,4 +746,67 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get profileUpdated => 'Профиль обновлён';
+
+  @override
+  String get filterOrders => 'Фильтровать Заказы';
+
+  @override
+  String get today => 'Сегодня';
+
+  @override
+  String get thisWeek => 'На Этой Неделе';
+
+  @override
+  String get byTable => 'По Столику';
+
+  @override
+  String noOrdersWithStatus(String status) {
+    return 'Нет заказов со статусом $status';
+  }
+
+  @override
+  String items(int count) {
+    return '$count позиций';
+  }
+
+  @override
+  String get reject => 'Отклонить';
+
+  @override
+  String get acceptAndStart => 'Принять и Начать';
+
+  @override
+  String get markAsReady => 'Отметить Готовым';
+
+  @override
+  String get complete => 'Завершить';
+
+  @override
+  String get rejectOrder => 'Отклонить Заказ';
+
+  @override
+  String rejectOrderConfirm(String orderNumber) {
+    return 'Вы уверены, что хотите отклонить заказ #$orderNumber?';
+  }
+
+  @override
+  String orderRejected(String orderNumber) {
+    return 'Заказ #$orderNumber отклонён';
+  }
+
+  @override
+  String orderStatusUpdated(String orderNumber) {
+    return 'Статус заказа #$orderNumber обновлён';
+  }
+
+  @override
+  String get orderDetails => 'Детали Заказа';
+
+  @override
+  String note(String note) {
+    return 'Примечание: $note';
+  }
+
+  @override
+  String get acceptAndStartPreparing => 'Принять и Начать Приготовление';
 }

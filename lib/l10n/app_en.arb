@@ -341,5 +341,65 @@
   "phone": "Phone",
   "address": "Address",
   "saveChanges": "Save Changes",
-  "profileUpdated": "Profile updated"
+  "profileUpdated": "Profile updated",
+
+  "filterOrders": "Filter Orders",
+  "today": "Today",
+  "thisWeek": "This Week",
+  "byTable": "By Table",
+  "noOrdersWithStatus": "No {status} orders",
+  "@noOrdersWithStatus": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "items": "{count} items",
+  "@items": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reject": "Reject",
+  "acceptAndStart": "Accept & Start",
+  "markAsReady": "Mark Ready",
+  "complete": "Complete",
+  "rejectOrder": "Reject Order",
+  "rejectOrderConfirm": "Are you sure you want to reject order #{orderNumber}?",
+  "@rejectOrderConfirm": {
+    "placeholders": {
+      "orderNumber": {
+        "type": "String"
+      }
+    }
+  },
+  "orderRejected": "Order #{orderNumber} rejected",
+  "@orderRejected": {
+    "placeholders": {
+      "orderNumber": {
+        "type": "String"
+      }
+    }
+  },
+  "orderStatusUpdated": "Order #{orderNumber} status updated",
+  "@orderStatusUpdated": {
+    "placeholders": {
+      "orderNumber": {
+        "type": "String"
+      }
+    }
+  },
+  "orderDetails": "Order Details",
+  "note": "Note: {note}",
+  "@note": {
+    "placeholders": {
+      "note": {
+        "type": "String"
+      }
+    }
+  },
+  "acceptAndStartPreparing": "Accept & Start Preparing"
 }

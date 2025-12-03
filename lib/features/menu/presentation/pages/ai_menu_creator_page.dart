@@ -8,8 +8,11 @@ import 'package:image_picker/image_picker.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../main.dart';
 import '../../../../services/ai_menu_service.dart';
+import '../../../../services/background_ai_service.dart';
+import '../../../../services/language_service.dart';
 import '../../../../services/menu_service.dart';
 import '../../../../services/menu_template_service.dart';
+import '../../../../services/notification_service.dart';
 import '../../../../services/restaurant_service.dart';
 
 class AIMenuCreatorPage extends ConsumerStatefulWidget {
@@ -454,6 +457,7 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
 
   Widget _buildResultsView(ThemeData theme) {
     final result = _analysisResult!;
+    final currentLang = ref.watch(appLocaleProvider).languageCode;
 
     return Column(
       children: [
@@ -581,27 +585,13 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                category.name,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.primaryColor,
-                                ),
-                              ),
-                              // Show English translation
-                              if (category.translatedNames['en'] != null &&
-                                  category.translatedNames['en'] != category.name)
-                                Text(
-                                  category.translatedNames['en']!,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: theme.primaryColor.withOpacity(0.7),
-                                  ),
-                                ),
-                            ],
+                          child: Text(
+                            // Display in current interface language, fallback to original
+                            category.translatedNames[currentLang] ?? category.name,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: theme.primaryColor,
+                            ),
                           ),
                         ),
                         Container(
@@ -632,7 +622,7 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
                     final itemIndex = result.items.indexOf(item);
                     final isSelected = _selectedItems.contains(itemIndex);
 
-                    return _buildItemCard(theme, item, itemIndex, isSelected);
+                    return _buildItemCard(theme, item, itemIndex, isSelected, currentLang);
                   }),
                   const SizedBox(height: 16),
                 ],
@@ -755,6 +745,7 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
     DetectedMenuItem item,
     int index,
     bool isSelected,
+    String currentLang,
   ) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -801,32 +792,68 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Original Name
+                    // Name in current interface language
                     Text(
-                      item.name,
+                      item.translatedNames[currentLang] ?? item.name,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    // English translation if different
-                    if (item.translatedNames['en'] != null &&
-                        item.translatedNames['en'] != item.name)
-                      Text(
-                        item.translatedNames['en']!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.grey,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    if (item.description != null) ...[
+                    if (item.description != null || item.translatedDescriptions[currentLang] != null) ...[
                       const SizedBox(height: 4),
                       Text(
-                        item.description!,
+                        item.translatedDescriptions[currentLang] ?? item.description ?? '',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: Colors.grey[600],
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    // Show variants if available
+                    if (item.hasVariants) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: item.variants.map((variant) {
+                          final variantName = variant.translatedNames[currentLang] ?? variant.name;
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: Colors.orange.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  variantName,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.orange[800],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  variant.price.toStringAsFixed(2),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.orange[900],
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
                       ),
                     ],
                     const SizedBox(height: 8),
@@ -871,20 +898,33 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
                 ),
               ),
 
-              // Price
+              // Price (show base price, or "from X" if variants)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: theme.primaryColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(
-                  '${item.price.toStringAsFixed(2)}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: theme.primaryColor,
-                    fontSize: 16,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (item.hasVariants)
+                      Text(
+                        'from',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: theme.primaryColor.withOpacity(0.7),
+                        ),
+                      ),
+                    Text(
+                      '${item.price.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: theme.primaryColor,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -989,29 +1029,39 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
       _progress = 0.0;
     });
 
+    // Initialize notification service for background notifications
+    final notificationService = NotificationService();
+    await notificationService.initialize();
+
     try {
-      final aiService = ref.read(aiMenuServiceProvider);
-      final result = await aiService.analyzeMenuImages(
+      final backgroundService = BackgroundAIService();
+      
+      // Start analysis with background support
+      final stream = backgroundService.analyzeInBackground(
         images: _selectedImages,
-        onProgress: (status, progress) {
-          if (mounted) {
-            setState(() {
-              _currentStatus = status;
-              _progress = progress;
-            });
-          }
-        },
       );
 
-      if (mounted) {
+      // Listen to progress updates
+      await for (final update in stream) {
+        if (!mounted) break;
+
         setState(() {
-          _isAnalyzing = false;
-          _analysisResult = result;
-          // Select all items by default
-          _selectedItems.addAll(
-            List.generate(result.items.length, (i) => i),
-          );
+          _currentStatus = update.statusMessage ?? '';
+          _progress = update.progress;
         });
+
+        if (update.result != null) {
+          setState(() {
+            _isAnalyzing = false;
+            _analysisResult = update.result;
+            // Select all items by default
+            _selectedItems.addAll(
+              List.generate(update.result!.items.length, (i) => i),
+            );
+          });
+        } else if (!update.success && update.error != null) {
+          throw Exception(update.error);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1258,6 +1308,7 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
     try {
       final menuService = ref.read(menuServiceProvider);
       final restaurantService = ref.read(restaurantServiceProvider);
+      final templateService = ref.read(menuTemplateServiceProvider);
       
       // Fetch the restaurant properly using async
       var restaurant = await ref.read(currentRestaurantProvider.future);
@@ -1284,6 +1335,17 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
       }
       
       final restaurantId = restaurant.id;
+      final result = _analysisResult!;
+
+      // Step 0: Save the menu as a template and mark it as active
+      final templateName = result.restaurantName ?? 'AI Menu ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}';
+      await templateService.saveAndActivateTemplate(
+        restaurantId: restaurantId,
+        name: templateName,
+        description: 'Created with AI Menu Creator',
+        analysisResult: result,
+        selectedItems: _selectedItems,
+      );
 
       // Step 1: Delete all existing categories (this will cascade delete items)
       final existingCategories = await ref.read(menuCategoriesProvider(restaurantId).future);
@@ -1291,7 +1353,6 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
         await menuService.deleteCategory(category.id);
       }
 
-      final result = _analysisResult!;
       final createdCategories = <String, String>{}; // name -> id
       int displayOrder = 0;
 
@@ -1339,7 +1400,7 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
           name: item.translatedNames['en'] ?? item.name,
           description: item.translatedDescriptions['en'] ?? item.description,
           price: item.price,
-          sortOrder: itemDisplayOrders[categoryId],
+          sortOrder: item.sortOrder,
         );
 
         // Add translations (skip 'en' as it's already added by createItem)
@@ -1357,11 +1418,35 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
             );
           }
         }
+
+        // Add variants with translations
+        for (final variant in item.variants) {
+          final variantId = await menuService.createVariant(
+            itemId: createdItem.id,
+            name: variant.translatedNames['en'] ?? variant.name,
+            price: variant.price,
+            sortOrder: variant.sortOrder,
+          );
+
+          // Add variant translations (skip 'en' as it's already added by createVariant)
+          for (final lang in AppConfig.supportedLanguages) {
+            if (lang == 'en') continue;
+            final translatedVariantName = variant.translatedNames[lang];
+            if (translatedVariantName != null) {
+              await menuService.addVariantTranslation(
+                variantId: variantId,
+                languageCode: lang,
+                name: translatedVariantName,
+              );
+            }
+          }
+        }
       }
 
       // Invalidate the menu providers to refresh data
       ref.invalidate(menuCategoriesProvider(restaurantId));
       ref.invalidate(allMenuItemsProvider(restaurantId));
+      ref.invalidate(menuTemplatesProvider(restaurantId));
 
       if (mounted) {
         Navigator.pop(context); // Close loading

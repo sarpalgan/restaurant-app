@@ -219,5 +219,23 @@
   "phone": "Telefono",
   "address": "Indirizzo",
   "saveChanges": "Salva Modifiche",
-  "profileUpdated": "Profilo aggiornato"
+  "profileUpdated": "Profilo aggiornato",
+
+  "filterOrders": "Filtra Ordini",
+  "today": "Oggi",
+  "thisWeek": "Questa Settimana",
+  "byTable": "Per Tavolo",
+  "noOrdersWithStatus": "Nessun ordine {status}",
+  "items": "{count} articoli",
+  "reject": "Rifiuta",
+  "acceptAndStart": "Accetta e Inizia",
+  "markAsReady": "Segna Pronto",
+  "complete": "Completa",
+  "rejectOrder": "Rifiuta Ordine",
+  "rejectOrderConfirm": "Sei sicuro di voler rifiutare l'ordine #{orderNumber}?",
+  "orderRejected": "Ordine #{orderNumber} rifiutato",
+  "orderStatusUpdated": "Stato dell'ordine #{orderNumber} aggiornato",
+  "orderDetails": "Dettagli Ordine",
+  "note": "Nota: {note}",
+  "acceptAndStartPreparing": "Accetta e Inizia Preparazione"
 }

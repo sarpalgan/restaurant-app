@@ -219,5 +219,23 @@
   "phone": "Телефон",
   "address": "Адрес",
   "saveChanges": "Сохранить Изменения",
-  "profileUpdated": "Профиль обновлён"
+  "profileUpdated": "Профиль обновлён",
+
+  "filterOrders": "Фильтровать Заказы",
+  "today": "Сегодня",
+  "thisWeek": "На Этой Неделе",
+  "byTable": "По Столику",
+  "noOrdersWithStatus": "Нет заказов со статусом {status}",
+  "items": "{count} позиций",
+  "reject": "Отклонить",
+  "acceptAndStart": "Принять и Начать",
+  "markAsReady": "Отметить Готовым",
+  "complete": "Завершить",
+  "rejectOrder": "Отклонить Заказ",
+  "rejectOrderConfirm": "Вы уверены, что хотите отклонить заказ #{orderNumber}?",
+  "orderRejected": "Заказ #{orderNumber} отклонён",
+  "orderStatusUpdated": "Статус заказа #{orderNumber} обновлён",
+  "orderDetails": "Детали Заказа",
+  "note": "Примечание: {note}",
+  "acceptAndStartPreparing": "Принять и Начать Приготовление"
 }

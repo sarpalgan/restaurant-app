@@ -38,10 +38,16 @@ class AppConfig {
   // GOOGLE GEMINI AI (Menu Analysis)
   // ============================================================
   
-  // TODO: Add your Gemini API key from https://aistudio.google.com/apikey
-  // For production, use environment variables or a secure backend
-  // Leave empty to use demo/mock mode with sample menu data
-  static const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
+  // For local development, you can temporarily add your key here
+  // For production, use --dart-define=GEMINI_API_KEY=your_key
+  // Get your key from https://aistudio.google.com/apikey
+  static const String _geminiApiKeyFromEnv = String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
+  
+  // TODO: For local testing, you can temporarily paste your key here (DON'T COMMIT!)
+  static const String _localGeminiApiKey = '';  // <-- Paste key here for testing
+  
+  static String get geminiApiKey => 
+    _geminiApiKeyFromEnv.isNotEmpty ? _geminiApiKeyFromEnv : _localGeminiApiKey;
   
   // ============================================================
   // DEMO MODE HELPERS

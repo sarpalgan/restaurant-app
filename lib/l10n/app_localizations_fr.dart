@@ -752,4 +752,67 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get profileUpdated => 'Profil mis à jour';
+
+  @override
+  String get filterOrders => 'Filtrer les Commandes';
+
+  @override
+  String get today => 'Aujourd\'hui';
+
+  @override
+  String get thisWeek => 'Cette Semaine';
+
+  @override
+  String get byTable => 'Par Table';
+
+  @override
+  String noOrdersWithStatus(String status) {
+    return 'Pas de commandes $status';
+  }
+
+  @override
+  String items(int count) {
+    return '$count articles';
+  }
+
+  @override
+  String get reject => 'Refuser';
+
+  @override
+  String get acceptAndStart => 'Accepter et Démarrer';
+
+  @override
+  String get markAsReady => 'Marquer Prêt';
+
+  @override
+  String get complete => 'Terminer';
+
+  @override
+  String get rejectOrder => 'Refuser la Commande';
+
+  @override
+  String rejectOrderConfirm(String orderNumber) {
+    return 'Êtes-vous sûr de vouloir refuser la commande #$orderNumber ?';
+  }
+
+  @override
+  String orderRejected(String orderNumber) {
+    return 'Commande #$orderNumber refusée';
+  }
+
+  @override
+  String orderStatusUpdated(String orderNumber) {
+    return 'Statut de la commande #$orderNumber mis à jour';
+  }
+
+  @override
+  String get orderDetails => 'Détails de la Commande';
+
+  @override
+  String note(String note) {
+    return 'Note : $note';
+  }
+
+  @override
+  String get acceptAndStartPreparing => 'Accepter et Commencer la Préparation';
 }

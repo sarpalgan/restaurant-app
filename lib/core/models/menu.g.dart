@@ -6,6 +6,52 @@ part of 'menu.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
+_$MenuItemVariantImpl _$$MenuItemVariantImplFromJson(
+        Map<String, dynamic> json) =>
+    _$MenuItemVariantImpl(
+      id: json['id'] as String,
+      itemId: json['itemId'] as String,
+      price: (json['price'] as num).toDouble(),
+      sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      translations: (json['translations'] as Map<String, dynamic>?)?.map(
+            (k, e) => MapEntry(
+                k, VariantTranslation.fromJson(e as Map<String, dynamic>)),
+          ) ??
+          const {},
+    );
+
+Map<String, dynamic> _$$MenuItemVariantImplToJson(
+        _$MenuItemVariantImpl instance) =>
+    <String, dynamic>{
+      'id': instance.id,
+      'itemId': instance.itemId,
+      'price': instance.price,
+      'sortOrder': instance.sortOrder,
+      'createdAt': instance.createdAt.toIso8601String(),
+      'updatedAt': instance.updatedAt.toIso8601String(),
+      'translations': instance.translations,
+    };
+
+_$VariantTranslationImpl _$$VariantTranslationImplFromJson(
+        Map<String, dynamic> json) =>
+    _$VariantTranslationImpl(
+      id: json['id'] as String,
+      variantId: json['variantId'] as String,
+      languageCode: json['languageCode'] as String,
+      name: json['name'] as String,
+    );
+
+Map<String, dynamic> _$$VariantTranslationImplToJson(
+        _$VariantTranslationImpl instance) =>
+    <String, dynamic>{
+      'id': instance.id,
+      'variantId': instance.variantId,
+      'languageCode': instance.languageCode,
+      'name': instance.name,
+    };
+
 _$MenuCategoryImpl _$$MenuCategoryImplFromJson(Map<String, dynamic> json) =>
     _$MenuCategoryImpl(
       id: json['id'] as String,
@@ -61,6 +107,13 @@ _$MenuItemImpl _$$MenuItemImplFromJson(Map<String, dynamic> json) =>
       restaurantId: json['restaurantId'] as String,
       price: (json['price'] as num).toDouble(),
       imageUrl: json['imageUrl'] as String?,
+      originalImageUrl: json['originalImageUrl'] as String?,
+      aiGeneratedImages: (json['aiGeneratedImages'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          const [],
+      selectedAiImageIndex:
+          (json['selectedAiImageIndex'] as num?)?.toInt() ?? -1,
       videoUrl: json['videoUrl'] as String?,
       videoThumbnailUrl: json['videoThumbnailUrl'] as String?,
       videoStatus: json['videoStatus'] as String? ?? 'none',
@@ -84,6 +137,10 @@ _$MenuItemImpl _$$MenuItemImplFromJson(Map<String, dynamic> json) =>
                 k, ItemTranslation.fromJson(e as Map<String, dynamic>)),
           ) ??
           const {},
+      variants: (json['variants'] as List<dynamic>?)
+              ?.map((e) => MenuItemVariant.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
     );
 
 Map<String, dynamic> _$$MenuItemImplToJson(_$MenuItemImpl instance) =>
@@ -93,6 +150,9 @@ Map<String, dynamic> _$$MenuItemImplToJson(_$MenuItemImpl instance) =>
       'restaurantId': instance.restaurantId,
       'price': instance.price,
       'imageUrl': instance.imageUrl,
+      'originalImageUrl': instance.originalImageUrl,
+      'aiGeneratedImages': instance.aiGeneratedImages,
+      'selectedAiImageIndex': instance.selectedAiImageIndex,
       'videoUrl': instance.videoUrl,
       'videoThumbnailUrl': instance.videoThumbnailUrl,
       'videoStatus': instance.videoStatus,
@@ -106,6 +166,7 @@ Map<String, dynamic> _$$MenuItemImplToJson(_$MenuItemImpl instance) =>
       'createdAt': instance.createdAt.toIso8601String(),
       'updatedAt': instance.updatedAt.toIso8601String(),
       'translations': instance.translations,
+      'variants': instance.variants,
     };
 
 _$ItemTranslationImpl _$$ItemTranslationImplFromJson(

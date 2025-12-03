@@ -219,5 +219,23 @@
   "phone": "Telefon",
   "address": "Adresse",
   "saveChanges": "Änderungen speichern",
-  "profileUpdated": "Profil aktualisiert"
+  "profileUpdated": "Profil aktualisiert",
+
+  "filterOrders": "Bestellungen filtern",
+  "today": "Heute",
+  "thisWeek": "Diese Woche",
+  "byTable": "Nach Tisch",
+  "noOrdersWithStatus": "Keine {status} Bestellungen",
+  "items": "{count} Artikel",
+  "reject": "Ablehnen",
+  "acceptAndStart": "Annehmen & Starten",
+  "markAsReady": "Als fertig markieren",
+  "complete": "Abschließen",
+  "rejectOrder": "Bestellung ablehnen",
+  "rejectOrderConfirm": "Möchten Sie Bestellung #{orderNumber} wirklich ablehnen?",
+  "orderRejected": "Bestellung #{orderNumber} abgelehnt",
+  "orderStatusUpdated": "Status von Bestellung #{orderNumber} aktualisiert",
+  "orderDetails": "Bestelldetails",
+  "note": "Hinweis: {note}",
+  "acceptAndStartPreparing": "Annehmen und Zubereitung starten"
 }

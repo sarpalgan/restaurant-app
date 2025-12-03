@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
-import '../../../../core/config/app_config.dart';
 import '../../../../core/models/menu.dart';
 import '../../../../core/routing/app_router.dart';
 import '../../../../l10n/app_localizations.dart';
+import '../../../../services/ai_image_service.dart';
+import '../../../../services/image_service.dart';
 import '../../../../services/language_service.dart';
 import '../../../../services/menu_service.dart';
 import '../../../../services/restaurant_service.dart';
+import '../../../../services/translation_service.dart';
 
 class MenuManagementPage extends ConsumerStatefulWidget {
   const MenuManagementPage({super.key});
@@ -22,6 +25,13 @@ class _MenuManagementPageState extends ConsumerState<MenuManagementPage>
   TabController? _tabController;
   int _lastCategoryCount = 0;
   String? _restaurantId;
+  late final ProviderContainer _container;
+
+  @override
+  void initState() {
+    super.initState();
+    _container = ProviderScope.containerOf(context, listen: false);
+  }
 
   @override
   void dispose() {
@@ -149,27 +159,6 @@ class _MenuManagementPageState extends ConsumerState<MenuManagementPage>
                     Icon(Icons.bookmark, color: Colors.orange),
                     SizedBox(width: 8),
                     Text('Saved Menus'),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
-                value: 'change_language',
-                child: Row(
-                  children: [
-                    Icon(Icons.language, color: Colors.blue),
-                    SizedBox(width: 8),
-                    Text('Change Language'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'refresh',
-                child: Row(
-                  children: [
-                    Icon(Icons.refresh),
-                    SizedBox(width: 8),
-                    Text('Refresh Menu'),
                   ],
                 ),
               ),
@@ -403,16 +392,40 @@ class _MenuManagementPageState extends ConsumerState<MenuManagementPage>
                   return;
                 }
                 final menuService = ref.read(menuServiceProvider);
+                final translationService = ref.read(translationServiceProvider);
+                final currentLang = ref.read(appLocaleProvider).languageCode;
                 try {
-                  await menuService.createItem(
+                  // Create the item first
+                  final createdItem = await menuService.createItem(
                     categoryId: selectedCategoryId,
                     restaurantId: _restaurantId!,
                     name: nameController.text,
                     price: price,
                     description: descriptionController.text.isEmpty ? null : descriptionController.text,
                   );
+                  
+                  // Add translation for current language
+                  await menuService.addItemTranslation(
+                    itemId: createdItem.id,
+                    languageCode: currentLang,
+                    name: nameController.text,
+                    description: descriptionController.text.isEmpty ? null : descriptionController.text,
+                  );
+                  
                   ref.invalidate(menuItemsProvider(selectedCategoryId));
                   if (ctx.mounted) Navigator.pop(ctx);
+                  
+                  // Translate in background (don't await)
+                  _translateNewItem(
+                    container: _container,
+                    translationService: translationService,
+                    menuService: menuService,
+                    itemId: createdItem.id,
+                    name: nameController.text,
+                    description: descriptionController.text.isEmpty ? null : descriptionController.text,
+                    sourceLanguage: currentLang,
+                    categoryId: selectedCategoryId,
+                  );
                 } catch (e) {
                   if (ctx.mounted) {
                     ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -425,6 +438,40 @@ class _MenuManagementPageState extends ConsumerState<MenuManagementPage>
         ),
       ),
     );
+  }
+  
+  /// Translate a newly created item to all supported languages in the background
+  Future<void> _translateNewItem({
+    required ProviderContainer container,
+    required TranslationService translationService,
+    required MenuService menuService,
+    required String itemId,
+    required String name,
+    String? description,
+    required String sourceLanguage,
+    required String categoryId,
+  }) async {
+    try {
+      debugPrint('Starting background translation for item: $name');
+      final translations = await translationService.translateMenuItem(
+        name: name,
+        description: description,
+        sourceLanguage: sourceLanguage,
+      );
+      
+      if (translations.isNotEmpty) {
+        await menuService.saveItemTranslations(
+          itemId: itemId,
+          translations: translations,
+        );
+        debugPrint('Translations saved for item: $name');
+        // Refresh the menu items list to show updated translations
+        container.invalidate(menuItemsProvider(categoryId));
+      }
+    } catch (e) {
+      debugPrint('Background translation failed: $e');
+      // Silently fail - the item was created, translations just won't be available
+    }
   }
 }
 
@@ -499,14 +546,14 @@ class _MenuItemsList extends ConsumerWidget {
     );
   }
 
-  void _showItemDetails(BuildContext context, WidgetRef ref, MenuItem item) {
+  void _showItemDetails(BuildContext parentContext, WidgetRef ref, MenuItem item) {
     final currentLang = ref.read(appLocaleProvider).languageCode;
     final translation = item.translations[currentLang] ?? item.translations['en'];
     showModalBottomSheet(
-      context: context,
+      context: parentContext,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => DraggableScrollableSheet(
+      builder: (sheetContext) => DraggableScrollableSheet(
         initialChildSize: 0.6,
         minChildSize: 0.4,
         maxChildSize: 0.9,
@@ -531,12 +578,25 @@ class _MenuItemsList extends ConsumerWidget {
                     Expanded(
                       child: Text(translation?.name ?? 'Unnamed Item', style: Theme.of(context).textTheme.headlineSmall),
                     ),
-                    Text(
-                      '\$${item.price.toStringAsFixed(2)}',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: Theme.of(context).primaryColor,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (item.variants.isNotEmpty)
+                          Text(
+                            'from',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).primaryColor.withOpacity(0.7),
+                            ),
+                          ),
+                        Text(
+                          '\$${item.price.toStringAsFixed(2)}',
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            color: Theme.of(context).primaryColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -544,14 +604,64 @@ class _MenuItemsList extends ConsumerWidget {
                   const SizedBox(height: 8),
                   Text(translation!.description!, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600])),
                 ],
+                // Show variants if available
+                if (item.variants.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Options',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  ...item.variants.map((variant) {
+                    final variantName = variant.translations[currentLang]?.name ?? 
+                                       variant.translations['en']?.name ?? 'Option';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              variantName,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.orange[800],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              '\$${variant.price.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.orange[900],
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ],
                 const SizedBox(height: 24),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () {
-                          Navigator.pop(context);
-                          _showEditDialog(context, ref, item);
+                          Navigator.pop(sheetContext);
+                          // Use Future.delayed to ensure the bottom sheet is fully closed
+                          Future.delayed(const Duration(milliseconds: 100), () {
+                            if (parentContext.mounted) {
+                              _showEditDialog(parentContext, ref, item);
+                            }
+                          });
                         },
                         icon: const Icon(Icons.edit),
                         label: const Text('Edit'),
@@ -564,7 +674,7 @@ class _MenuItemsList extends ConsumerWidget {
                           final menuService = ref.read(menuServiceProvider);
                           await menuService.toggleItemAvailability(item.id, !item.isAvailable);
                           ref.invalidate(menuItemsProvider(category.id));
-                          if (context.mounted) Navigator.pop(context);
+                          if (sheetContext.mounted) Navigator.pop(sheetContext);
                         },
                         icon: Icon(item.isAvailable ? Icons.visibility_off : Icons.visibility),
                         label: Text(item.isAvailable ? 'Unavailable' : 'Available'),
@@ -581,50 +691,14 @@ class _MenuItemsList extends ConsumerWidget {
   }
 
   void _showEditDialog(BuildContext context, WidgetRef ref, MenuItem item) {
-    final translation = item.translations['en'];
-    final nameController = TextEditingController(text: translation?.name ?? '');
-    final priceController = TextEditingController(text: item.price.toString());
-    final descriptionController = TextEditingController(text: translation?.description ?? '');
-
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit Item'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Name')),
-              const SizedBox(height: 16),
-              TextField(
-                controller: priceController,
-                decoration: const InputDecoration(labelText: 'Price', prefixText: '\$ '),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 16),
-              TextField(controller: descriptionController, decoration: const InputDecoration(labelText: 'Description'), maxLines: 2),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final price = double.tryParse(priceController.text);
-              if (price == null) return;
-              final menuService = ref.read(menuServiceProvider);
-              await menuService.updateItem(
-                id: item.id,
-                name: nameController.text,
-                price: price,
-                description: descriptionController.text.isEmpty ? null : descriptionController.text,
-              );
-              ref.invalidate(menuItemsProvider(category.id));
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('Save'),
-          ),
-        ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _EditItemSheet(
+        item: item,
+        categoryId: category.id,
       ),
     );
   }
@@ -685,20 +759,7 @@ class _MenuItemCard extends ConsumerWidget {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  borderRadius: BorderRadius.circular(8),
-                  image: item.imageUrl != null
-                      ? DecorationImage(image: NetworkImage(item.imageUrl!), fit: BoxFit.cover)
-                      : null,
-                ),
-                child: item.imageUrl == null
-                    ? Center(child: Icon(Icons.restaurant, color: Colors.grey[400], size: 32))
-                    : null,
-              ),
+              _MenuItemImage(imageUrl: item.imageUrl),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -735,16 +796,72 @@ class _MenuItemCard extends ConsumerWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
+                    // Show variants if available
+                    if (item.variants.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: item.variants.map((variant) {
+                          final variantName = variant.translations[currentLang]?.name ?? 
+                                             variant.translations['en']?.name ?? 'Option';
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  variantName,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.orange[800],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '\$${variant.price.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.orange[900],
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          '\$${item.price.toStringAsFixed(2)}',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: theme.primaryColor,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        // Show price with "from" if variants exist
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (item.variants.isNotEmpty)
+                              Text(
+                                'from',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: theme.primaryColor.withOpacity(0.7),
+                                ),
+                              ),
+                            Text(
+                              '\$${item.price.toStringAsFixed(2)}',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: theme.primaryColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
                         Row(
                           children: [
@@ -773,6 +890,78 @@ class _MenuItemCard extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MenuItemImage extends ConsumerWidget {
+  final String? imageUrl;
+
+  const _MenuItemImage({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final imageService = ref.watch(imageServiceProvider);
+    final placeholder = Center(child: Icon(Icons.restaurant, color: Colors.grey[400], size: 32));
+
+    Widget buildPlaceholder() => Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: placeholder,
+        );
+
+    if (imageUrl == null || imageUrl!.isEmpty) {
+      return buildPlaceholder();
+    }
+
+    if (imageService.isBase64DataUri(imageUrl)) {
+      final bytes = imageService.decodeBase64DataUri(imageUrl!);
+      if (bytes == null) {
+        return buildPlaceholder();
+      }
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.memory(
+          bytes,
+          width: 80,
+          height: 80,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => buildPlaceholder(),
+        ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.network(
+        imageUrl!,
+        width: 80,
+        height: 80,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => buildPlaceholder(),
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: CircularProgressIndicator(
+                value: progress.expectedTotalBytes != null
+                    ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                    : null,
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -835,4 +1024,1707 @@ class _MenuSearchDelegate extends SearchDelegate<String> {
       },
     );
   }
+}
+
+// ============================================================
+// EDIT ITEM SHEET - Full screen bottom sheet for editing items
+// ============================================================
+
+class _EditItemSheet extends ConsumerStatefulWidget {
+  final MenuItem item;
+  final String categoryId;
+
+  const _EditItemSheet({
+    required this.item,
+    required this.categoryId,
+  });
+
+  @override
+  ConsumerState<_EditItemSheet> createState() => _EditItemSheetState();
+}
+
+class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
+  late TextEditingController _nameController;
+  late TextEditingController _priceController;
+  late TextEditingController _descriptionController;
+  late final ProviderContainer _container;
+  
+  // Store original values to detect changes
+  late String _originalName;
+  late String _originalDescription;
+  
+  // Image state
+  String? _currentImageUrl;
+  String? _originalUploadedImage; // Keep track of the original uploaded image
+  XFile? _newImageFile;
+  bool _isUploadingImage = false;
+  bool _imageDeleted = false;
+  bool _showImageOverlay = false; // Toggle for image action buttons overlay
+  
+  // AI-generated images state
+  List<String> _aiGeneratedImages = [];
+  int _selectedAiImageIndex = 0;
+  bool _isGeneratingAiImage = false;
+  
+  // List of variants (mutable for add/delete)
+  late List<_VariantEditData> _variants;
+  
+  // Track deleted variant IDs
+  final List<String> _deletedVariantIds = [];
+  
+  // Track new variants (not yet in database)
+  final List<_VariantEditData> _newVariants = [];
+  
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _container = ProviderScope.containerOf(context, listen: false);
+    final currentLang = ref.read(appLocaleProvider).languageCode;
+    final translation = widget.item.translations[currentLang] ?? widget.item.translations['en'];
+    
+    _originalName = translation?.name ?? '';
+    _originalDescription = translation?.description ?? '';
+    
+    _nameController = TextEditingController(text: _originalName);
+    _priceController = TextEditingController(text: widget.item.price.toString());
+    _descriptionController = TextEditingController(text: _originalDescription);
+    
+    // Initialize AI-generated images (these are separate from original)
+    _aiGeneratedImages = List<String>.from(widget.item.aiGeneratedImages);
+    _selectedAiImageIndex = widget.item.selectedAiImageIndex;
+    
+    // Load the original image from the dedicated field
+    // If originalImageUrl exists, use it. Otherwise, fall back to imageUrl if it's not an AI image.
+    if (widget.item.originalImageUrl != null && widget.item.originalImageUrl!.isNotEmpty) {
+      _originalUploadedImage = widget.item.originalImageUrl;
+    } else if (widget.item.imageUrl != null && widget.item.imageUrl!.isNotEmpty) {
+      // Legacy support: if there's no originalImageUrl but imageUrl exists and is NOT an AI image
+      if (!_aiGeneratedImages.contains(widget.item.imageUrl)) {
+        _originalUploadedImage = widget.item.imageUrl;
+      }
+    }
+    
+    // Set the current display image (imageUrl stores what's shown in menu)
+    _currentImageUrl = widget.item.imageUrl;
+    
+    // Initialize variants
+    _variants = widget.item.variants.map((v) {
+      final variantTranslation = v.translations[currentLang] ?? v.translations['en'];
+      return _VariantEditData(
+        id: v.id,
+        nameController: TextEditingController(text: variantTranslation?.name ?? ''),
+        priceController: TextEditingController(text: v.price.toString()),
+        isNew: false,
+      );
+    }).toList();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _priceController.dispose();
+    _descriptionController.dispose();
+    for (final v in _variants) {
+      v.nameController.dispose();
+      v.priceController.dispose();
+    }
+    super.dispose();
+  }
+
+  void _addVariant() {
+    setState(() {
+      final newVariant = _VariantEditData(
+        id: 'new_${DateTime.now().millisecondsSinceEpoch}',
+        nameController: TextEditingController(),
+        priceController: TextEditingController(text: '0'),
+        isNew: true,
+      );
+      _variants.add(newVariant);
+      _newVariants.add(newVariant);
+    });
+  }
+
+  void _deleteVariant(int index) {
+    final variant = _variants[index];
+    setState(() {
+      _variants.removeAt(index);
+      if (!variant.isNew) {
+        _deletedVariantIds.add(variant.id);
+      } else {
+        _newVariants.remove(variant);
+      }
+      variant.nameController.dispose();
+      variant.priceController.dispose();
+    });
+  }
+
+  /// Show image source selection dialog
+  Future<void> _showImagePicker() async {
+    final imageService = ref.read(imageServiceProvider);
+    
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take a Photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    
+    if (source == null) return;
+    
+    setState(() => _isUploadingImage = true);
+    
+    try {
+      XFile? pickedFile;
+      if (source == ImageSource.gallery) {
+        pickedFile = await imageService.pickImageFromGallery();
+      } else {
+        pickedFile = await imageService.pickImageFromCamera();
+      }
+      
+      if (pickedFile != null) {
+        // Convert to base64 and set as original image
+        final base64Image = await imageService.convertToBase64DataUri(pickedFile);
+        if (mounted && base64Image.isNotEmpty) {
+          setState(() {
+            _originalUploadedImage = base64Image;
+            _currentImageUrl = base64Image; // Auto-select the new original
+            _newImageFile = null;
+            _imageDeleted = false;
+          });
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingImage = false);
+      }
+    }
+  }
+
+  /// Generate AI Image using Gemini
+  Future<void> _generateAIImage() async {
+    // Must have an original image to generate from
+    if (_originalUploadedImage == null || _originalUploadedImage!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please upload an original image first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    
+    final dishName = _nameController.text.trim();
+    if (dishName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a dish name first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    
+    setState(() => _isGeneratingAiImage = true);
+    
+    try {
+      final aiImageService = ref.read(aiImageServiceProvider);
+      final description = _descriptionController.text.trim();
+      
+      final generatedImageBase64 = await aiImageService.generateFoodImage(
+        referenceImageBase64: _originalUploadedImage!,
+        dishName: dishName,
+        description: description.isEmpty ? null : description,
+      );
+      
+      if (generatedImageBase64 != null && mounted) {
+        setState(() {
+          // Add to AI gallery (no original in this list anymore)
+          _aiGeneratedImages.add(generatedImageBase64);
+          // Auto-select the newly generated image
+          _currentImageUrl = generatedImageBase64;
+          _selectedAiImageIndex = _aiGeneratedImages.length - 1;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('AI image generated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to generate AI image. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error generating AI image: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGeneratingAiImage = false);
+      }
+    }
+  }
+  
+  /// Show confirmation dialog before generating AI image
+  Future<void> _showAIGenerateConfirmation() async {
+    // Must have an original image
+    if (_originalUploadedImage == null || _originalUploadedImage!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please upload an original image first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    
+    final dishName = _nameController.text.trim();
+    if (dishName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a dish name first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    
+    final description = _descriptionController.text.trim();
+    final theme = Theme.of(context);
+    final imageService = ref.read(imageServiceProvider);
+    
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.auto_awesome, color: Colors.purple),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Generate AI Image',
+                style: TextStyle(fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Reference image preview
+              Text(
+                'Reference Image:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[700],
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 280),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Builder(
+                    builder: (context) {
+                      final bytes = imageService.decodeBase64DataUri(_originalUploadedImage!);
+                      if (bytes != null) {
+                        return Image.memory(
+                          bytes,
+                          height: 150,
+                          width: 280,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                        );
+                      }
+                      return Container(
+                        height: 150,
+                        width: 280,
+                        color: Colors.grey[200],
+                        child: const Center(child: Icon(Icons.broken_image)),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Dish name
+              Text(
+                'Dish Name:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[700],
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  dishName,
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Description
+              Text(
+                'Description:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[700],
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  description.isEmpty ? '(No description provided)' : description,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontStyle: description.isEmpty ? FontStyle.italic : FontStyle.normal,
+                    color: description.isEmpty ? Colors.grey : null,
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Warning note
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, size: 18, color: Colors.amber[800]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'To change these details, close this dialog and edit the fields above first.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.amber[900],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.auto_awesome, size: 18),
+            label: const Text('Generate'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      _generateAIImage();
+    }
+  }
+  
+  /// Delete an AI-generated image
+  void _deleteAiImage(int index) {
+    if (index < 0 || index >= _aiGeneratedImages.length) return;
+    
+    final deletedImageUrl = _aiGeneratedImages[index];
+    
+    setState(() {
+      _aiGeneratedImages.removeAt(index);
+      
+      // If the deleted image was currently selected, clear selection
+      if (_currentImageUrl == deletedImageUrl) {
+        _currentImageUrl = null;
+        _selectedAiImageIndex = -1;
+      } else if (index <= _selectedAiImageIndex && _selectedAiImageIndex > 0) {
+        _selectedAiImageIndex = _selectedAiImageIndex - 1;
+      }
+    });
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('AI Image #${index + 1} deleted'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+  
+  /// Select an image from the gallery (sets it as active immediately)
+  void _selectImage(String? imageUrl) {
+    setState(() {
+      if (imageUrl == null) {
+        // Unselect - clear current image
+        _currentImageUrl = null;
+        _selectedAiImageIndex = -1;
+      } else if (imageUrl == _originalUploadedImage) {
+        // Selected original image
+        _currentImageUrl = imageUrl;
+        _selectedAiImageIndex = -1; // -1 means original is selected
+      } else {
+        // Selected an AI image
+        _currentImageUrl = imageUrl;
+        _selectedAiImageIndex = _aiGeneratedImages.indexOf(imageUrl);
+      }
+      _newImageFile = null;
+      _imageDeleted = false;
+    });
+  }
+  
+  /// Check if an image is currently selected
+  bool _isImageSelected(String imageUrl) {
+    return _currentImageUrl == imageUrl;
+  }
+  
+  /// Confirm and delete the original image
+  void _confirmDeleteOriginalImage() {
+    if (_originalUploadedImage == null) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            const SizedBox(width: 8),
+            const Text('Delete Original Image?'),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to delete the original image? '
+          'This will also remove the ability to generate new AI images until you upload a new photo.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                if (_isImageSelected(_originalUploadedImage!)) {
+                  _currentImageUrl = null;
+                }
+                _originalUploadedImage = null;
+                _newImageFile = null;
+              });
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Confirm and delete an AI-generated image
+  void _confirmDeleteAiImage(int index) {
+    if (index < 0 || index >= _aiGeneratedImages.length) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            const SizedBox(width: 8),
+            const Text('Delete AI Image?'),
+          ],
+        ),
+        content: Text('Are you sure you want to delete AI Image #${index + 1}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteAiImage(index);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Show full-screen preview of an image
+  void _showImagePreviewDialog(String imageBase64, {String? title}) {
+    final imageService = ref.read(imageServiceProvider);
+    final bytes = imageService.decodeBase64DataUri(imageBase64);
+    
+    if (bytes == null) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+            // Image
+            Center(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Image.memory(
+                  bytes,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+            // Close button
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                ),
+              ),
+            ),
+            // Title
+            if (title != null)
+              Positioned(
+                bottom: 16,
+                left: 16,
+                right: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    title,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    if (_isSaving) return;
+    
+    setState(() => _isSaving = true);
+    
+    try {
+      final menuService = ref.read(menuServiceProvider);
+      final imageService = ref.read(imageServiceProvider);
+      final translationService = ref.read(translationServiceProvider);
+      final currentLang = ref.read(appLocaleProvider).languageCode;
+      
+      // Check if name or description changed
+      final nameChanged = _nameController.text != _originalName;
+      final descChanged = _descriptionController.text != _originalDescription;
+      final needsTranslation = nameChanged || descChanged;
+      
+      // Handle image changes - convert to base64 for database storage
+      String? newImageUrl = _currentImageUrl;
+      
+      if (_newImageFile != null) {
+        // Convert image to base64 data URI
+        setState(() => _isUploadingImage = true);
+        newImageUrl = await imageService.convertToBase64DataUri(_newImageFile!);
+        setState(() => _isUploadingImage = false);
+      } else if (_imageDeleted) {
+        // Clear the image
+        newImageUrl = null;
+      }
+      
+      // Determine if we need to update the image_url
+      final bool shouldUpdateImage = _newImageFile != null || _imageDeleted || 
+          (_currentImageUrl != widget.item.imageUrl);
+      
+      // Determine if we need to update the original_image_url
+      final bool shouldUpdateOriginalImage = _originalUploadedImage != widget.item.originalImageUrl;
+      
+      // Update main item with AI images
+      final price = double.tryParse(_priceController.text) ?? widget.item.price;
+      await menuService.updateItem(
+        id: widget.item.id,
+        name: _nameController.text,
+        price: price,
+        description: _descriptionController.text.isEmpty ? null : _descriptionController.text,
+        languageCode: currentLang,
+        imageUrl: shouldUpdateImage ? (_currentImageUrl ?? newImageUrl) : null,
+        clearImageUrl: _imageDeleted && _currentImageUrl == null,
+        originalImageUrl: shouldUpdateOriginalImage ? _originalUploadedImage : null,
+        clearOriginalImageUrl: shouldUpdateOriginalImage && _originalUploadedImage == null,
+        aiGeneratedImages: _aiGeneratedImages,
+        selectedAiImageIndex: _selectedAiImageIndex,
+      );
+
+      // Delete removed variants
+      for (final variantId in _deletedVariantIds) {
+        await menuService.deleteVariant(variantId);
+      }
+
+      // Track new variant IDs for translation
+      final newVariantIds = <String, String>{}; // variantId -> name
+      
+      // Update existing variants and create new ones
+      for (final variant in _variants) {
+        final variantPrice = double.tryParse(variant.priceController.text) ?? 0;
+        
+        if (variant.isNew) {
+          // Create new variant and track for translation
+          final variantId = await menuService.createVariant(
+            itemId: widget.item.id,
+            name: variant.nameController.text,
+            price: variantPrice,
+            sortOrder: _variants.indexOf(variant),
+          );
+          // Also save translation for current language
+          await menuService.addVariantTranslation(
+            variantId: variantId,
+            languageCode: currentLang,
+            name: variant.nameController.text,
+          );
+          newVariantIds[variantId] = variant.nameController.text;
+        } else {
+          // Update existing variant
+          await menuService.updateVariant(
+            variantId: variant.id,
+            price: variantPrice,
+            name: variant.nameController.text,
+            languageCode: currentLang,
+          );
+        }
+      }
+
+      ref.invalidate(menuItemsProvider(widget.categoryId));
+      if (mounted) Navigator.pop(context);
+      
+      // Translate in background if needed
+      if (needsTranslation) {
+        _translateEditedItem(
+          container: _container,
+          translationService: translationService,
+          menuService: menuService,
+          itemId: widget.item.id,
+          name: _nameController.text,
+          description: _descriptionController.text.isEmpty ? null : _descriptionController.text,
+          sourceLanguage: currentLang,
+          categoryId: widget.categoryId,
+        );
+      }
+      
+      // Translate new variants in background
+      for (final entry in newVariantIds.entries) {
+        _translateNewVariant(
+          container: _container,
+          translationService: translationService,
+          menuService: menuService,
+          variantId: entry.key,
+          name: entry.value,
+          sourceLanguage: currentLang,
+          categoryId: widget.categoryId,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+  
+  /// Translate an edited item to all supported languages in the background
+  Future<void> _translateEditedItem({
+    required ProviderContainer container,
+    required TranslationService translationService,
+    required MenuService menuService,
+    required String itemId,
+    required String name,
+    String? description,
+    required String sourceLanguage,
+    required String categoryId,
+  }) async {
+    try {
+      debugPrint('Starting background translation for edited item: $name');
+      final translations = await translationService.translateMenuItem(
+        name: name,
+        description: description,
+        sourceLanguage: sourceLanguage,
+      );
+      
+      if (translations.isNotEmpty) {
+        await menuService.saveItemTranslations(
+          itemId: itemId,
+          translations: translations,
+        );
+        debugPrint('Translations saved for edited item: $name');
+        container.invalidate(menuItemsProvider(categoryId));
+      }
+    } catch (e) {
+      debugPrint('Background translation failed for edited item: $e');
+    }
+  }
+  
+  /// Translate a new variant to all supported languages in the background
+  Future<void> _translateNewVariant({
+    required ProviderContainer container,
+    required TranslationService translationService,
+    required MenuService menuService,
+    required String variantId,
+    required String name,
+    required String sourceLanguage,
+    required String categoryId,
+  }) async {
+    try {
+      debugPrint('Starting background translation for new variant: $name');
+      final translations = await translationService.translateVariantName(
+        name: name,
+        sourceLanguage: sourceLanguage,
+      );
+      
+      if (translations.isNotEmpty) {
+        await menuService.saveVariantTranslations(
+          variantId: variantId,
+          translations: translations,
+        );
+        debugPrint('Translations saved for new variant: $name');
+        container.invalidate(menuItemsProvider(categoryId));
+      }
+    } catch (e) {
+      debugPrint('Background translation failed for new variant: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasVariants = _variants.isNotEmpty;
+    
+    return GestureDetector(
+      onTap: () {
+        FocusScope.of(context).unfocus();
+        // Hide image overlay when tapping outside
+        if (_showImageOverlay) {
+          setState(() => _showImageOverlay = false);
+        }
+      },
+      child: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: theme.scaffoldBackgroundColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+            // Handle bar
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Edit Item',
+                      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          
+          const Divider(height: 1),
+          
+          // Content
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Name field
+                  TextField(
+                    controller: _nameController,
+                    decoration: InputDecoration(
+                      labelText: 'Name',
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      prefixIcon: const Icon(Icons.restaurant_menu),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Price field (only if no variants)
+                  if (!hasVariants) ...[
+                    TextField(
+                      controller: _priceController,
+                      decoration: InputDecoration(
+                        labelText: 'Price',
+                        filled: true,
+                        fillColor: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        prefixIcon: const Icon(Icons.attach_money),
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  
+                  // Description field
+                  TextField(
+                    controller: _descriptionController,
+                    decoration: InputDecoration(
+                      labelText: 'Description',
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      prefixIcon: const Icon(Icons.description),
+                      alignLabelWithHint: true,
+                    ),
+                    maxLines: 3,
+                  ),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Options section
+                  Row(
+                    children: [
+                      Icon(Icons.tune, color: theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Options / Sizes',
+                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: _addVariant,
+                        icon: const Icon(Icons.add, size: 20),
+                        label: const Text('Add'),
+                      ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  if (_variants.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: theme.colorScheme.outline.withOpacity(0.2),
+                          style: BorderStyle.solid,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.grey[500]),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'No options. Tap "Add" to create size or variant options like Small, Medium, Large.',
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ...List.generate(_variants.length, (index) {
+                      final variant = _variants[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              // Drag handle (visual only for now)
+                              Icon(Icons.drag_indicator, color: Colors.grey[400], size: 20),
+                              const SizedBox(width: 8),
+                              
+                              // Name field
+                              Expanded(
+                                flex: 3,
+                                child: TextField(
+                                  controller: variant.nameController,
+                                  decoration: InputDecoration(
+                                    hintText: 'Option name',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: theme.scaffoldBackgroundColor,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  ),
+                                ),
+                              ),
+                              
+                              const SizedBox(width: 8),
+                              
+                              // Price field
+                              Expanded(
+                                flex: 2,
+                                child: TextField(
+                                  controller: variant.priceController,
+                                  decoration: InputDecoration(
+                                    hintText: 'Price',
+                                    prefixText: '\$ ',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: theme.scaffoldBackgroundColor,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  ),
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                ),
+                              ),
+                              
+                              const SizedBox(width: 4),
+                              
+                              // Delete button
+                              IconButton(
+                                onPressed: () => _deleteVariant(index),
+                                icon: const Icon(Icons.delete_outline),
+                                color: Colors.red[400],
+                                iconSize: 22,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // ============ ORIGINAL IMAGE SECTION ============
+                  Row(
+                    children: [
+                      Icon(Icons.photo, color: Colors.blue),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Original Image',
+                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  Text(
+                    'Tap to select • Upload or change your original photo',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[500],
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Original image card
+                  GestureDetector(
+                    onTap: () {
+                      if (_originalUploadedImage != null) {
+                        // Toggle selection
+                        _selectImage(_isImageSelected(_originalUploadedImage!) ? null : _originalUploadedImage);
+                      }
+                    },
+                    child: Container(
+                      height: 140,
+                      width: 140,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _isImageSelected(_originalUploadedImage ?? '') 
+                              ? Colors.blue 
+                              : Colors.grey.withOpacity(0.3),
+                          width: _isImageSelected(_originalUploadedImage ?? '') ? 3 : 1,
+                        ),
+                        boxShadow: _isImageSelected(_originalUploadedImage ?? '') ? [
+                          BoxShadow(
+                            color: Colors.blue.withOpacity(0.3),
+                            blurRadius: 8,
+                            spreadRadius: 1,
+                          ),
+                        ] : null,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: _originalUploadedImage != null
+                            ? Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  // Image
+                                  Builder(
+                                    builder: (context) {
+                                      final imageService = ref.read(imageServiceProvider);
+                                      final bytes = imageService.decodeBase64DataUri(_originalUploadedImage!);
+                                      if (bytes != null) {
+                                        return Image.memory(
+                                          bytes,
+                                          key: ValueKey(_originalUploadedImage.hashCode),
+                                          fit: BoxFit.cover,
+                                          gaplessPlayback: true,
+                                        );
+                                      }
+                                      return Container(
+                                        color: Colors.grey[200],
+                                        child: const Icon(Icons.broken_image),
+                                      );
+                                    },
+                                  ),
+                                  
+                                  // Selected indicator
+                                  if (_isImageSelected(_originalUploadedImage!))
+                                    Positioned(
+                                      top: 4,
+                                      left: 4,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(5),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.blue,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.check,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    ),
+                                  
+                                  // Delete button (top right)
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: GestureDetector(
+                                      onTap: () => _confirmDeleteOriginalImage(),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withOpacity(0.85),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.close,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  
+                                  // Change button (bottom left)
+                                  Positioned(
+                                    bottom: 4,
+                                    left: 4,
+                                    child: GestureDetector(
+                                      onTap: _isUploadingImage ? null : () {
+                                        _showImagePicker();
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.withOpacity(0.85),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: _isUploadingImage
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: Colors.white,
+                                                ),
+                                              )
+                                            : const Icon(
+                                                Icons.edit,
+                                                color: Colors.white,
+                                                size: 18,
+                                              ),
+                                      ),
+                                    ),
+                                  ),
+                                  
+                                  // Fullscreen button (bottom right)
+                                  Positioned(
+                                    bottom: 4,
+                                    right: 4,
+                                    child: GestureDetector(
+                                      onTap: () => _showImagePreviewDialog(
+                                        _originalUploadedImage!,
+                                        title: 'Original Image',
+                                      ),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withOpacity(0.6),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.fullscreen,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : GestureDetector(
+                                onTap: _isUploadingImage ? null : () {
+                                  _showImagePicker();
+                                },
+                                child: Container(
+                                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                                  child: Center(
+                                    child: _isUploadingImage
+                                        ? const CircularProgressIndicator()
+                                        : Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.add_photo_alternate,
+                                                size: 32,
+                                                color: Colors.blue.withOpacity(0.7),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                'Upload',
+                                                style: TextStyle(
+                                                  color: Colors.blue.withOpacity(0.7),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Friendly reminder if no original image
+                  if (_originalUploadedImage == null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.purple.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.lightbulb_outline,
+                            color: Colors.purple.withOpacity(0.8),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Upload an original photo to unlock AI image generation!',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.purple.shade700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  
+                  // ============ AI GENERATED IMAGES SECTION ============
+                  // Show this section if there are AI images OR if there's an original (to show Create New button)
+                  if (_aiGeneratedImages.isNotEmpty || _originalUploadedImage != null) ...[
+                    const SizedBox(height: 24),
+                    
+                    Row(
+                      children: [
+                        Icon(Icons.auto_awesome, color: Colors.purple),
+                        const SizedBox(width: 8),
+                        Text(
+                          'AI Generated Images',
+                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const Spacer(),
+                        // Create New AI Image button (only if original exists)
+                        if (_originalUploadedImage != null)
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: _isGeneratingAiImage ? null : _showAIGenerateConfirmation,
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.purple.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.purple.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: _isGeneratingAiImage
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.purple,
+                                        ),
+                                      )
+                                    : Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.add_photo_alternate,
+                                            size: 18,
+                                            color: Colors.purple,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'New',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.purple,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    
+                    const SizedBox(height: 8),
+                    
+                    Text(
+                      _aiGeneratedImages.isEmpty 
+                          ? 'Tap "New" to generate AI images from your original photo'
+                          : 'Tap to select • Scroll for more',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[500],
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 12),
+                    
+                    // Horizontal scrollable AI images gallery (only show if there are AI images)
+                    if (_aiGeneratedImages.isNotEmpty)
+                      SizedBox(
+                        height: 140,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _aiGeneratedImages.length,
+                          itemBuilder: (context, index) {
+                            final imageUrl = _aiGeneratedImages[index];
+                            final isSelected = _isImageSelected(imageUrl);
+                            final imageService = ref.read(imageServiceProvider);
+                            final bytes = imageService.decodeBase64DataUri(imageUrl);
+                            
+                            return GestureDetector(
+                              onTap: () {
+                                // Toggle selection
+                                _selectImage(isSelected ? null : imageUrl);
+                              },
+                              child: Container(
+                              width: 120,
+                              margin: EdgeInsets.only(right: index < _aiGeneratedImages.length - 1 ? 12 : 0),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected ? Colors.purple : Colors.grey.withOpacity(0.3),
+                                  width: isSelected ? 3 : 1,
+                                ),
+                                boxShadow: isSelected ? [
+                                  BoxShadow(
+                                    color: Colors.purple.withOpacity(0.3),
+                                    blurRadius: 8,
+                                    spreadRadius: 1,
+                                  ),
+                                ] : null,
+                              ),
+                              child: Stack(
+                                children: [
+                                  // Image
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: bytes != null
+                                        ? Image.memory(
+                                            bytes,
+                                            key: ValueKey(imageUrl.hashCode),
+                                            width: 120,
+                                            height: 140,
+                                            fit: BoxFit.cover,
+                                            gaplessPlayback: true,
+                                          )
+                                        : Container(
+                                            color: Colors.grey[200],
+                                            child: const Icon(Icons.broken_image),
+                                          ),
+                                  ),
+                                  
+                                  // Selected indicator
+                                  if (isSelected)
+                                    Positioned(
+                                      top: 4,
+                                      left: 4,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(5),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.purple,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.check,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    ),
+                                  
+                                  // Delete button (top right)
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: GestureDetector(
+                                      onTap: () => _confirmDeleteAiImage(index),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withOpacity(0.85),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.close,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  
+                                  // Fullscreen button (bottom right)
+                                  Positioned(
+                                    bottom: 4,
+                                    right: 4,
+                                    child: GestureDetector(
+                                      onTap: () => _showImagePreviewDialog(
+                                        imageUrl,
+                                        title: 'AI Generated Image #${index + 1}',
+                                      ),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withOpacity(0.6),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.fullscreen,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  
+                                  // AI label (bottom left)
+                                  Positioned(
+                                    bottom: 6,
+                                    left: 6,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.purple.withOpacity(0.85),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        'AI #${index + 1}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  
+                  const SizedBox(height: 100), // Space for button
+                ],
+              ),
+            ),
+          ),
+          
+          // Save button
+          Container(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).viewInsets.bottom),
+            decoration: BoxDecoration(
+              color: theme.scaffoldBackgroundColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: theme.colorScheme.onPrimary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Save Changes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ),
+          ),
+              ],
+            ),
+          ),
+          
+          // AI Generation loading overlay
+          if (_isGeneratingAiImage)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Animated icon
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        duration: const Duration(seconds: 2),
+                        builder: (context, value, child) {
+                          return Transform.rotate(
+                            angle: value * 2 * 3.14159,
+                            child: child,
+                          );
+                        },
+                        onEnd: () {
+                          // Restart animation
+                          if (_isGeneratingAiImage && mounted) {
+                            setState(() {});
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.auto_awesome,
+                            color: Colors.purple,
+                            size: 48,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Generating AI Image...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 40),
+                        child: Text(
+                          'Using Gemini AI to create a professional food photo based on your image',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: 200,
+                        child: LinearProgressIndicator(
+                          backgroundColor: Colors.white.withOpacity(0.2),
+                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.purple),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'This may take 10-30 seconds',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.6),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// Helper class to manage variant editing state
+class _VariantEditData {
+  final String id;
+  final TextEditingController nameController;
+  final TextEditingController priceController;
+  final bool isNew;
+
+  _VariantEditData({
+    required this.id,
+    required this.nameController,
+    required this.priceController,
+    required this.isNew,
+  });
 }

@@ -219,5 +219,23 @@
   "phone": "Téléphone",
   "address": "Adresse",
   "saveChanges": "Enregistrer les Modifications",
-  "profileUpdated": "Profil mis à jour"
+  "profileUpdated": "Profil mis à jour",
+
+  "filterOrders": "Filtrer les Commandes",
+  "today": "Aujourd'hui",
+  "thisWeek": "Cette Semaine",
+  "byTable": "Par Table",
+  "noOrdersWithStatus": "Pas de commandes {status}",
+  "items": "{count} articles",
+  "reject": "Refuser",
+  "acceptAndStart": "Accepter et Démarrer",
+  "markAsReady": "Marquer Prêt",
+  "complete": "Terminer",
+  "rejectOrder": "Refuser la Commande",
+  "rejectOrderConfirm": "Êtes-vous sûr de vouloir refuser la commande #{orderNumber} ?",
+  "orderRejected": "Commande #{orderNumber} refusée",
+  "orderStatusUpdated": "Statut de la commande #{orderNumber} mis à jour",
+  "orderDetails": "Détails de la Commande",
+  "note": "Note : {note}",
+  "acceptAndStartPreparing": "Accepter et Commencer la Préparation"
 }

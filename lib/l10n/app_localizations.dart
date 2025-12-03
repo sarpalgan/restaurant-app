@@ -1513,6 +1513,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Profile updated'**
   String get profileUpdated;
+
+  /// No description provided for @filterOrders.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter Orders'**
+  String get filterOrders;
+
+  /// No description provided for @today.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get today;
+
+  /// No description provided for @thisWeek.
+  ///
+  /// In en, this message translates to:
+  /// **'This Week'**
+  String get thisWeek;
+
+  /// No description provided for @byTable.
+  ///
+  /// In en, this message translates to:
+  /// **'By Table'**
+  String get byTable;
+
+  /// No description provided for @noOrdersWithStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'No {status} orders'**
+  String noOrdersWithStatus(String status);
+
+  /// No description provided for @items.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} items'**
+  String items(int count);
+
+  /// No description provided for @reject.
+  ///
+  /// In en, this message translates to:
+  /// **'Reject'**
+  String get reject;
+
+  /// No description provided for @acceptAndStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept & Start'**
+  String get acceptAndStart;
+
+  /// No description provided for @markAsReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark Ready'**
+  String get markAsReady;
+
+  /// No description provided for @complete.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete'**
+  String get complete;
+
+  /// No description provided for @rejectOrder.
+  ///
+  /// In en, this message translates to:
+  /// **'Reject Order'**
+  String get rejectOrder;
+
+  /// No description provided for @rejectOrderConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to reject order #{orderNumber}?'**
+  String rejectOrderConfirm(String orderNumber);
+
+  /// No description provided for @orderRejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Order #{orderNumber} rejected'**
+  String orderRejected(String orderNumber);
+
+  /// No description provided for @orderStatusUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Order #{orderNumber} status updated'**
+  String orderStatusUpdated(String orderNumber);
+
+  /// No description provided for @orderDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Order Details'**
+  String get orderDetails;
+
+  /// No description provided for @note.
+  ///
+  /// In en, this message translates to:
+  /// **'Note: {note}'**
+  String note(String note);
+
+  /// No description provided for @acceptAndStartPreparing.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept & Start Preparing'**
+  String get acceptAndStartPreparing;
 }
 
 class _AppLocalizationsDelegate

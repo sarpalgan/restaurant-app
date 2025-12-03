@@ -219,5 +219,23 @@
   "phone": "电话",
   "address": "地址",
   "saveChanges": "保存更改",
-  "profileUpdated": "资料已更新"
+  "profileUpdated": "资料已更新",
+
+  "filterOrders": "筛选订单",
+  "today": "今天",
+  "thisWeek": "本周",
+  "byTable": "按餐桌",
+  "noOrdersWithStatus": "没有{status}订单",
+  "items": "{count}项",
+  "reject": "拒绝",
+  "acceptAndStart": "接受并开始",
+  "markAsReady": "标记为就绪",
+  "complete": "完成",
+  "rejectOrder": "拒绝订单",
+  "rejectOrderConfirm": "您确定要拒绝订单#{orderNumber}吗？",
+  "orderRejected": "订单#{orderNumber}已拒绝",
+  "orderStatusUpdated": "订单#{orderNumber}状态已更新",
+  "orderDetails": "订单详情",
+  "note": "备注：{note}",
+  "acceptAndStartPreparing": "接受并开始准备"
 }

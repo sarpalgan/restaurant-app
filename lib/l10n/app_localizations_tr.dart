@@ -744,4 +744,67 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get profileUpdated => 'Profil güncellendi';
+
+  @override
+  String get filterOrders => 'Siparişleri Filtrele';
+
+  @override
+  String get today => 'Bugün';
+
+  @override
+  String get thisWeek => 'Bu Hafta';
+
+  @override
+  String get byTable => 'Masaya Göre';
+
+  @override
+  String noOrdersWithStatus(String status) {
+    return '$status durumunda sipariş yok';
+  }
+
+  @override
+  String items(int count) {
+    return '$count öğe';
+  }
+
+  @override
+  String get reject => 'Reddet';
+
+  @override
+  String get acceptAndStart => 'Kabul Et ve Başla';
+
+  @override
+  String get markAsReady => 'Hazır Olarak İşaretle';
+
+  @override
+  String get complete => 'Tamamla';
+
+  @override
+  String get rejectOrder => 'Siparişi Reddet';
+
+  @override
+  String rejectOrderConfirm(String orderNumber) {
+    return '#$orderNumber numaralı siparişi reddetmek istediğinizden emin misiniz?';
+  }
+
+  @override
+  String orderRejected(String orderNumber) {
+    return '#$orderNumber numaralı sipariş reddedildi';
+  }
+
+  @override
+  String orderStatusUpdated(String orderNumber) {
+    return '#$orderNumber numaralı sipariş durumu güncellendi';
+  }
+
+  @override
+  String get orderDetails => 'Sipariş Detayları';
+
+  @override
+  String note(String note) {
+    return 'Not: $note';
+  }
+
+  @override
+  String get acceptAndStartPreparing => 'Kabul Et ve Hazırlamaya Başla';
 }

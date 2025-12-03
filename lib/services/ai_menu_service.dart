@@ -7,6 +7,39 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/config/app_config.dart';
 
+/// Represents a variant/option for a menu item (e.g., Small/Medium/Large)
+class MenuItemVariant {
+  final String name;
+  final double price;
+  final int sortOrder;
+  final Map<String, String> translatedNames;
+
+  MenuItemVariant({
+    required this.name,
+    required this.price,
+    this.sortOrder = 0,
+    Map<String, String>? translatedNames,
+  }) : translatedNames = translatedNames ?? {};
+
+  factory MenuItemVariant.fromJson(Map<String, dynamic> json) {
+    return MenuItemVariant(
+      name: json['name'] ?? '',
+      price: (json['price'] as num?)?.toDouble() ?? 0.0,
+      sortOrder: json['sort_order'] as int? ?? 0,
+      translatedNames: json['translated_names'] != null
+          ? Map<String, String>.from(json['translated_names'])
+          : {},
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'price': price,
+        'sort_order': sortOrder,
+        'translated_names': translatedNames,
+      };
+}
+
 /// Represents a detected menu item from AI analysis
 class DetectedMenuItem {
   final String name;
@@ -16,6 +49,9 @@ class DetectedMenuItem {
   final String originalLanguage;
   final Map<String, String> translatedNames;
   final Map<String, String?> translatedDescriptions;
+  final List<MenuItemVariant> variants;
+  final bool hasVariants;
+  final int sortOrder;
 
   DetectedMenuItem({
     required this.name,
@@ -25,10 +61,18 @@ class DetectedMenuItem {
     required this.originalLanguage,
     Map<String, String>? translatedNames,
     Map<String, String?>? translatedDescriptions,
+    List<MenuItemVariant>? variants,
+    this.sortOrder = 0,
   })  : translatedNames = translatedNames ?? {},
-        translatedDescriptions = translatedDescriptions ?? {};
+        translatedDescriptions = translatedDescriptions ?? {},
+        variants = variants ?? [],
+        hasVariants = (variants ?? []).isNotEmpty;
 
   factory DetectedMenuItem.fromJson(Map<String, dynamic> json) {
+    final variantsList = (json['variants'] as List?)
+        ?.map((v) => MenuItemVariant.fromJson(v as Map<String, dynamic>))
+        .toList() ?? [];
+    
     return DetectedMenuItem(
       name: json['name'] ?? 'Unknown Item',
       description: json['description'],
@@ -41,6 +85,8 @@ class DetectedMenuItem {
       translatedDescriptions: json['translated_descriptions'] != null
           ? Map<String, String?>.from(json['translated_descriptions'])
           : {},
+      variants: variantsList,
+      sortOrder: json['sort_order'] ?? 0,
     );
   }
 
@@ -52,6 +98,8 @@ class DetectedMenuItem {
         'original_language': originalLanguage,
         'translated_names': translatedNames,
         'translated_descriptions': translatedDescriptions,
+        'variants': variants.map((v) => v.toJson()).toList(),
+        'sort_order': sortOrder,
       };
 }
 
@@ -61,12 +109,14 @@ class DetectedCategory {
   final String originalLanguage;
   final Map<String, String> translatedNames;
   final int itemCount;
+  final int sortOrder;
 
   DetectedCategory({
     required this.name,
     required this.originalLanguage,
     Map<String, String>? translatedNames,
     this.itemCount = 0,
+    this.sortOrder = 0,
   }) : translatedNames = translatedNames ?? {};
 
   factory DetectedCategory.fromJson(Map<String, dynamic> json) {
@@ -77,6 +127,7 @@ class DetectedCategory {
           ? Map<String, String>.from(json['translated_names'])
           : {},
       itemCount: json['item_count'] ?? 0,
+      sortOrder: json['sort_order'] ?? 0,
     );
   }
 }
@@ -137,17 +188,20 @@ class AIMenuService {
         },
       }).toList();
 
-      onProgress?.call('Analyzing menu with AI...', 0.3);
+      onProgress?.call('Analyzing menu with AI (this may take a minute)...', 0.3);
 
       // Build the prompt for Gemini
       final prompt = _buildAnalysisPrompt();
+      debugPrint('Sending request to Gemini API for extraction...');
 
-      // Call Gemini API
+      // Call Gemini API - using gemini-3-pro-preview for vision capabilities
       final response = await _dio.post(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent',
         queryParameters: {'key': AppConfig.geminiApiKey},
         options: Options(
           headers: {'Content-Type': 'application/json'},
+          receiveTimeout: const Duration(minutes: 5),
+          sendTimeout: const Duration(seconds: 60),
         ),
         data: {
           'contents': [
@@ -155,30 +209,32 @@ class AIMenuService {
               'parts': [
                 {'text': prompt},
                 ...images.map((img) => {
-                  'inline_data': {
-                    'mime_type': 'image/jpeg',
-                    'data': base64Encode(img),
-                  }
-                }),
+                      'inlineData': {
+                        'mimeType': 'image/jpeg',
+                        'data': base64Encode(img),
+                      }
+                    }),
               ],
             }
           ],
           'generationConfig': {
             'temperature': 0.2,
-            'maxOutputTokens': 8192,
+            'maxOutputTokens': 65536,
             'responseMimeType': 'application/json',
           },
         },
       );
 
-      onProgress?.call('Processing results...', 0.7);
+      debugPrint('Response received from Gemini API');
+      onProgress?.call('Processing results...', 0.6);
 
       // Parse the response
       final result = _parseGeminiResponse(response.data);
+      debugPrint('Parsed ${result.items.length} items in ${result.categories.length} categories');
       
-      onProgress?.call('Translating to all languages...', 0.85);
+      onProgress?.call('Translating menu items...', 0.8);
       
-      // Translate all items to supported languages
+      // Translate items using a separate model
       final translatedResult = await _translateAllItems(result, onProgress);
       
       onProgress?.call('Complete!', 1.0);
@@ -194,11 +250,20 @@ class AIMenuService {
     return '''
 You are an expert at analyzing restaurant menu images. Analyze the provided menu image(s) and extract all menu items.
 
+IMPORTANT: Preserve the EXACT ORDER of categories and items as they appear in the menu image, from top to bottom, left to right.
+
 For each menu item, extract:
 1. Name (in the original language shown)
 2. Description (if available)
-3. Price (as a number, without currency symbol)
-4. Category (group similar items together, e.g., "Appetizers", "Main Courses", "Desserts", "Beverages")
+3. Price (as a number, without currency symbol) - use the base/lowest price if there are variants
+4. Category (use the exact category name from the menu)
+5. Variants/Options (if the item has size options like Small/Medium/Large, or quantity options like 2pc/5pc/10pc)
+
+VARIANTS HANDLING:
+- If an item has multiple size/quantity options with different prices (e.g., Pizza: Small 10, Medium 15, Large 20), create ONE item entry with variants array
+- Each variant should have: name (e.g., "Small", "Medium", "Large" or "2 pieces", "5 pieces") and price
+- The main item price should be the lowest/base price
+- Common variant patterns: sizes (S/M/L, Small/Medium/Large), quantities (2pc/5pc/10pc), portions (Half/Full)
 
 Also detect:
 - The language of the menu
@@ -214,7 +279,8 @@ Return the data as a JSON object with this exact structure:
   "categories": [
     {
       "name": "Category Name in original language",
-      "original_language": "language code"
+      "original_language": "language code",
+      "sort_order": 0
     }
   ],
   "items": [
@@ -223,7 +289,13 @@ Return the data as a JSON object with this exact structure:
       "description": "Description if available, null otherwise",
       "price": 12.99,
       "category": "Category name this item belongs to",
-      "original_language": "language code"
+      "original_language": "language code",
+      "sort_order": 0,
+      "variants": [
+        {"name": "Small", "price": 10.99, "sort_order": 0},
+        {"name": "Medium", "price": 14.99, "sort_order": 1},
+        {"name": "Large", "price": 18.99, "sort_order": 2}
+      ]
     }
   ]
 }
@@ -232,21 +304,310 @@ Important:
 - Extract ALL visible menu items from ALL provided images
 - Keep names and descriptions in their ORIGINAL language
 - Prices should be numbers only (no currency symbols)
-- Group items into logical categories
+- PRESERVE THE EXACT ORDER - use sort_order starting from 0 for first category/item
+- Categories should be ordered as they appear in the menu (top to bottom)
+- Items within each category should be ordered as they appear (top to bottom)
 - If an item appears in multiple images, include it only once
 - If price is not visible, estimate based on similar items or use 0
+- For items with variants, the "variants" array should contain all options with their prices
+- Items WITHOUT variants should have an empty variants array: "variants": []
 ''';
+  }
+
+  Future<MenuAnalysisResult> _translateAllItems(
+    MenuAnalysisResult extractionResult,
+    Function(String status, double progress)? onProgress,
+  ) async {
+    try {
+      // If no items to translate, return original result
+      if (extractionResult.items.isEmpty) {
+        return extractionResult;
+      }
+
+      final prompt = _buildTranslationPrompt(extractionResult);
+      debugPrint('Sending request to Gemini API for translation...');
+
+      // Call Gemini API - using gemini-2.5-flash-lite for faster text processing
+      final response = await _dio.post(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent',
+        queryParameters: {'key': AppConfig.geminiApiKey},
+        options: Options(
+          headers: {'Content-Type': 'application/json'},
+          receiveTimeout: const Duration(minutes: 5),
+          sendTimeout: const Duration(seconds: 60),
+        ),
+        data: {
+          'contents': [
+            {
+              'parts': [
+                {'text': prompt},
+              ],
+            }
+          ],
+          'generationConfig': {
+            'temperature': 0.2,
+            'maxOutputTokens': 65536,
+            'responseMimeType': 'application/json',
+          },
+        },
+      );
+
+      debugPrint('Translation response received from Gemini API');
+      onProgress?.call('Finalizing menu...', 0.9);
+
+      return _parseTranslationResponse(response.data, extractionResult);
+    } catch (e) {
+      debugPrint('Translation Error: $e');
+      // If translation fails, return the original result with original language only
+      return extractionResult;
+    }
+  }
+
+  String _buildTranslationPrompt(MenuAnalysisResult result) {
+    final languages = AppConfig.supportedLanguages.join(', ');
+    
+    // Create a simplified representation of items for translation (including variants)
+    final itemsJson = result.items.map((item) => {
+      'name': item.name,
+      'description': item.description,
+      'category': item.category,
+      'variants': item.variants.map((v) => {'name': v.name}).toList(),
+    }).toList();
+
+    final categoriesJson = result.categories.map((cat) => {
+      'name': cat.name,
+    }).toList();
+
+    return '''
+You are an expert translator for restaurant menus. 
+Translate the following menu items, categories, and variants from "${result.detectedLanguageName}" to ALL of these languages: $languages.
+
+Input Data:
+Categories: ${jsonEncode(categoriesJson)}
+Items: ${jsonEncode(itemsJson)}
+
+Return the data as a JSON object with this exact structure:
+{
+  "categories": [
+    {
+      "name": "Original Category Name",
+      "translated_names": {
+        "en": "English translation",
+        "es": "Spanish translation",
+        "tr": "Turkish translation",
+        "de": "German translation",
+        "fr": "French translation",
+        "it": "Italian translation",
+        "ru": "Russian translation",
+        "zh": "Chinese translation"
+      }
+    }
+  ],
+  "items": [
+    {
+      "name": "Original Item Name",
+      "translated_names": {
+        "en": "English translation",
+        "es": "Spanish translation",
+        "tr": "Turkish translation",
+        "de": "German translation",
+        "fr": "French translation",
+        "it": "Italian translation",
+        "ru": "Russian translation",
+        "zh": "Chinese translation"
+      },
+      "translated_descriptions": {
+        "en": "English description or null",
+        "es": "Spanish description or null",
+        "tr": "Turkish description or null",
+        "de": "German description or null",
+        "fr": "French description or null",
+        "it": "Italian description or null",
+        "ru": "Russian description or null",
+        "zh": "Chinese description or null"
+      },
+      "variants": [
+        {
+          "name": "Original Variant Name",
+          "translated_names": {
+            "en": "English translation",
+            "es": "Spanish translation",
+            "tr": "Turkish translation",
+            "de": "German translation",
+            "fr": "French translation",
+            "it": "Italian translation",
+            "ru": "Russian translation",
+            "zh": "Chinese translation"
+          }
+        }
+      ]
+    }
+  ]
+}
+
+Important:
+- Provide translations for ALL requested languages.
+- Keep food names culturally appropriate.
+- Maintain the exact order of items, categories, and variants.
+- Translate variant names like "Small", "Medium", "Large", "2 pieces", etc. appropriately.
+''';
+  }
+
+  MenuAnalysisResult _parseTranslationResponse(Map<String, dynamic> response, MenuAnalysisResult originalResult) {
+    try {
+      final content = response['candidates']?[0]?['content']?['parts']?[0]?['text'];
+      if (content == null) throw Exception('No content in translation response');
+
+      Map<String, dynamic> data;
+      try {
+        data = jsonDecode(content);
+      } catch (e) {
+        final repaired = _tryRepairJson(content);
+        if (repaired != null) {
+          data = repaired;
+        } else {
+          throw e;
+        }
+      }
+
+      // Create maps for quick lookup
+      final categoryTranslations = <String, Map<String, String>>{};
+      if (data['categories'] != null) {
+        for (var cat in data['categories']) {
+          if (cat['name'] != null && cat['translated_names'] != null) {
+            categoryTranslations[cat['name']] = Map<String, String>.from(cat['translated_names']);
+          }
+        }
+      }
+
+      final itemTranslations = <String, Map<String, String>>{};
+      final itemDescTranslations = <String, Map<String, String?>>{};
+      final itemVariantTranslations = <String, List<Map<String, dynamic>>>{};
+      
+      if (data['items'] != null) {
+        for (var item in data['items']) {
+          final name = item['name'];
+          if (name != null) {
+            if (item['translated_names'] != null) {
+              itemTranslations[name] = Map<String, String>.from(item['translated_names']);
+            }
+            if (item['translated_descriptions'] != null) {
+              itemDescTranslations[name] = Map<String, String?>.from(item['translated_descriptions']);
+            }
+            if (item['variants'] != null) {
+              itemVariantTranslations[name] = List<Map<String, dynamic>>.from(item['variants']);
+            }
+          }
+        }
+      }
+
+      // Update categories
+      final updatedCategories = originalResult.categories.map((cat) {
+        final translations = categoryTranslations[cat.name] ?? {};
+        // Ensure original language is included
+        translations[originalResult.detectedLanguage] = cat.name;
+        
+        return DetectedCategory(
+          name: cat.name,
+          originalLanguage: cat.originalLanguage,
+          translatedNames: translations,
+          itemCount: cat.itemCount,
+          sortOrder: cat.sortOrder,
+        );
+      }).toList();
+
+      // Update items
+      final updatedItems = originalResult.items.map((item) {
+        final nameTranslations = itemTranslations[item.name] ?? {};
+        final descTranslations = itemDescTranslations[item.name] ?? {};
+        final variantTransData = itemVariantTranslations[item.name] ?? [];
+        
+        // Ensure original language is included
+        nameTranslations[originalResult.detectedLanguage] = item.name;
+        if (item.description != null) {
+          descTranslations[originalResult.detectedLanguage] = item.description;
+        }
+
+        // Update variant translations
+        final updatedVariants = item.variants.map((variant) {
+          // Find matching variant translation
+          Map<String, String> variantNameTranslations = {};
+          for (var vt in variantTransData) {
+            if (vt['name'] == variant.name && vt['translated_names'] != null) {
+              variantNameTranslations = Map<String, String>.from(vt['translated_names']);
+              break;
+            }
+          }
+          // Ensure original language is included
+          variantNameTranslations[originalResult.detectedLanguage] = variant.name;
+          
+          return MenuItemVariant(
+            name: variant.name,
+            price: variant.price,
+            sortOrder: variant.sortOrder,
+            translatedNames: variantNameTranslations,
+          );
+        }).toList();
+
+        return DetectedMenuItem(
+          name: item.name,
+          description: item.description,
+          price: item.price,
+          category: item.category,
+          originalLanguage: item.originalLanguage,
+          translatedNames: nameTranslations,
+          translatedDescriptions: descTranslations,
+          variants: updatedVariants,
+          sortOrder: item.sortOrder,
+        );
+      }).toList();
+
+      return MenuAnalysisResult(
+        detectedLanguage: originalResult.detectedLanguage,
+        detectedLanguageName: originalResult.detectedLanguageName,
+        categories: updatedCategories,
+        items: updatedItems,
+        currency: originalResult.currency,
+        restaurantName: originalResult.restaurantName,
+      );
+    } catch (e) {
+      debugPrint('Error parsing translation response: $e');
+      return originalResult;
+    }
   }
 
   MenuAnalysisResult _parseGeminiResponse(Map<String, dynamic> response) {
     try {
+      // Check for API errors first
+      final error = response['error'];
+      if (error != null) {
+        throw Exception('Gemini API error: ${error['message'] ?? error}');
+      }
+
       final content = response['candidates']?[0]?['content']?['parts']?[0]?['text'];
       if (content == null) {
+        // Check if there's a finish reason that indicates truncation
+        final finishReason = response['candidates']?[0]?['finishReason'];
+        if (finishReason == 'MAX_TOKENS') {
+          throw Exception('Response was truncated due to token limit. Please try with fewer menu items.');
+        }
         throw Exception('No content in response');
       }
 
-      // Parse the JSON response
-      final data = jsonDecode(content) as Map<String, dynamic>;
+      // Try to parse the JSON, with repair attempt for truncated responses
+      Map<String, dynamic> data;
+      try {
+        data = jsonDecode(content) as Map<String, dynamic>;
+      } catch (e) {
+        debugPrint('Initial JSON parse failed, attempting repair...');
+        final repaired = _tryRepairJson(content);
+        if (repaired != null) {
+          data = repaired;
+          debugPrint('JSON repair successful!');
+        } else {
+          rethrow;
+        }
+      }
       
       final categories = (data['categories'] as List?)
           ?.map((c) => DetectedCategory.fromJson(c))
@@ -256,6 +617,12 @@ Important:
           ?.map((i) => DetectedMenuItem.fromJson(i))
           .toList() ?? [];
       
+      // Sort categories by sort_order to preserve menu ordering
+      categories.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      
+      // Sort items by sort_order to preserve menu ordering
+      items.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      
       // Update category item counts
       final updatedCategories = categories.map((cat) {
         final count = items.where((item) => item.category == cat.name).length;
@@ -264,6 +631,7 @@ Important:
           originalLanguage: cat.originalLanguage,
           translatedNames: cat.translatedNames,
           itemCount: count,
+          sortOrder: cat.sortOrder,
         );
       }).toList();
 
@@ -280,174 +648,89 @@ Important:
       rethrow;
     }
   }
-
-  /// Translate all items and categories to all supported languages
-  Future<MenuAnalysisResult> _translateAllItems(
-    MenuAnalysisResult result,
-    Function(String status, double progress)? onProgress,
-  ) async {
-    if (_useMockMode) {
-      return result; // Mock already has translations
-    }
-
-    final targetLanguages = AppConfig.supportedLanguages
-        .where((lang) => lang != result.detectedLanguage)
-        .toList();
-
-    if (targetLanguages.isEmpty) {
-      return result;
-    }
-
+  
+  /// Attempt to repair truncated JSON by closing unclosed structures
+  Map<String, dynamic>? _tryRepairJson(String content) {
     try {
-      // Build translation request
-      final itemsToTranslate = result.items.map((item) => {
-        'name': item.name,
-        'description': item.description,
-      }).toList();
-
-      final categoriesToTranslate = result.categories.map((cat) => {
-        'name': cat.name,
-      }).toList();
-
-      final translationPrompt = '''
-Translate the following menu items and categories from ${result.detectedLanguageName} to these languages: ${targetLanguages.join(', ')}.
-
-Categories to translate:
-${jsonEncode(categoriesToTranslate)}
-
-Menu items to translate:
-${jsonEncode(itemsToTranslate)}
-
-Return a JSON object with this structure:
-{
-  "categories": [
-    {
-      "original": "Original category name",
-      "translations": {
-        "en": "English translation",
-        "es": "Spanish translation",
-        ...
-      }
-    }
-  ],
-  "items": [
-    {
-      "original_name": "Original item name",
-      "name_translations": {
-        "en": "English name",
-        "es": "Spanish name",
-        ...
-      },
-      "description_translations": {
-        "en": "English description or null",
-        "es": "Spanish description or null",
-        ...
-      }
-    }
-  ]
-}
-
-Important:
-- Keep food names culturally appropriate (don't over-translate food names that are internationally known)
-- Maintain the same tone and style
-- If a description is null, keep it null in translations
-''';
-
-      final response = await _dio.post(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-        queryParameters: {'key': AppConfig.geminiApiKey},
-        options: Options(
-          headers: {'Content-Type': 'application/json'},
-        ),
-        data: {
-          'contents': [
-            {
-              'parts': [
-                {'text': translationPrompt},
-              ],
-            }
-          ],
-          'generationConfig': {
-            'temperature': 0.3,
-            'maxOutputTokens': 8192,
-            'responseMimeType': 'application/json',
-          },
-        },
-      );
-
-      final content = response.data['candidates']?[0]?['content']?['parts']?[0]?['text'];
-      if (content == null) {
-        return result;
-      }
-
-      final translations = jsonDecode(content) as Map<String, dynamic>;
+      var json = content.trim();
       
-      // Apply translations to categories
-      final translatedCategories = result.categories.map((cat) {
-        final catTranslation = (translations['categories'] as List?)?.firstWhere(
-          (c) => c['original'] == cat.name,
-          orElse: () => null,
-        );
-        
-        final translatedNames = Map<String, String>.from(cat.translatedNames);
-        translatedNames[result.detectedLanguage] = cat.name; // Add original
-        
-        if (catTranslation != null && catTranslation['translations'] != null) {
-          translatedNames.addAll(Map<String, String>.from(catTranslation['translations']));
+      // Count unclosed brackets
+      int openBraces = 0;
+      int openBrackets = 0;
+      bool inString = false;
+      bool escaped = false;
+      
+      for (int i = 0; i < json.length; i++) {
+        final char = json[i];
+        if (escaped) {
+          escaped = false;
+          continue;
         }
-        
-        return DetectedCategory(
-          name: cat.name,
-          originalLanguage: cat.originalLanguage,
-          translatedNames: translatedNames,
-          itemCount: cat.itemCount,
-        );
-      }).toList();
-
-      // Apply translations to items
-      final translatedItems = result.items.map((item) {
-        final itemTranslation = (translations['items'] as List?)?.firstWhere(
-          (i) => i['original_name'] == item.name,
-          orElse: () => null,
-        );
-        
-        final translatedNames = Map<String, String>.from(item.translatedNames);
-        translatedNames[result.detectedLanguage] = item.name; // Add original
-        
-        final translatedDescriptions = Map<String, String?>.from(item.translatedDescriptions);
-        translatedDescriptions[result.detectedLanguage] = item.description; // Add original
-        
-        if (itemTranslation != null) {
-          if (itemTranslation['name_translations'] != null) {
-            translatedNames.addAll(Map<String, String>.from(itemTranslation['name_translations']));
+        if (char == '\\') {
+          escaped = true;
+          continue;
+        }
+        if (char == '"' && !escaped) {
+          inString = !inString;
+          continue;
+        }
+        if (!inString) {
+          if (char == '{') openBraces++;
+          if (char == '}') openBraces--;
+          if (char == '[') openBrackets++;
+          if (char == ']') openBrackets--;
+        }
+      }
+      
+      // If we're in a string, close it
+      if (inString) {
+        json += '"';
+      }
+      
+      // Remove any incomplete last item (ends with comma or incomplete object)
+      // Find the last complete item
+      final lastCompleteItem = json.lastIndexOf('},');
+      if (lastCompleteItem > 0 && openBraces > 0) {
+        json = json.substring(0, lastCompleteItem + 1);
+        // Recalculate brackets
+        openBraces = 0;
+        openBrackets = 0;
+        inString = false;
+        for (int i = 0; i < json.length; i++) {
+          final char = json[i];
+          if (escaped) {
+            escaped = false;
+            continue;
           }
-          if (itemTranslation['description_translations'] != null) {
-            translatedDescriptions.addAll(Map<String, String?>.from(itemTranslation['description_translations']));
+          if (char == '\\') {
+            escaped = true;
+            continue;
+          }
+          if (char == '"' && !escaped) {
+            inString = !inString;
+            continue;
+          }
+          if (!inString) {
+            if (char == '{') openBraces++;
+            if (char == '}') openBraces--;
+            if (char == '[') openBrackets++;
+            if (char == ']') openBrackets--;
           }
         }
-        
-        return DetectedMenuItem(
-          name: item.name,
-          description: item.description,
-          price: item.price,
-          category: item.category,
-          originalLanguage: item.originalLanguage,
-          translatedNames: translatedNames,
-          translatedDescriptions: translatedDescriptions,
-        );
-      }).toList();
-
-      return MenuAnalysisResult(
-        detectedLanguage: result.detectedLanguage,
-        detectedLanguageName: result.detectedLanguageName,
-        categories: translatedCategories,
-        items: translatedItems,
-        currency: result.currency,
-        restaurantName: result.restaurantName,
-      );
+      }
+      
+      // Close unclosed brackets
+      for (int i = 0; i < openBrackets; i++) {
+        json += ']';
+      }
+      for (int i = 0; i < openBraces; i++) {
+        json += '}';
+      }
+      
+      return jsonDecode(json) as Map<String, dynamic>;
     } catch (e) {
-      debugPrint('Translation error: $e');
-      return result; // Return original if translation fails
+      debugPrint('JSON repair failed: $e');
+      return null;
     }
   }
 

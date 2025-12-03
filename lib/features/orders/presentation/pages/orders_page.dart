@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../l10n/app_localizations.dart';
+
 class OrdersPage extends ConsumerStatefulWidget {
   const OrdersPage({super.key});
 
@@ -11,18 +13,11 @@ class OrdersPage extends ConsumerStatefulWidget {
 class _OrdersPageState extends ConsumerState<OrdersPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  
-  final List<_OrderTab> _tabs = [
-    _OrderTab(title: 'New', status: OrderStatus.pending, count: 5),
-    _OrderTab(title: 'Preparing', status: OrderStatus.preparing, count: 3),
-    _OrderTab(title: 'Ready', status: OrderStatus.ready, count: 2),
-    _OrderTab(title: 'Completed', status: OrderStatus.completed, count: 45),
-  ];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _tabs.length, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -31,19 +26,28 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
     super.dispose();
   }
 
+  List<_OrderTab> _getTabs(AppLocalizations l10n) => [
+    _OrderTab(title: l10n.newStatus, status: OrderStatus.pending, count: 5),
+    _OrderTab(title: l10n.preparing, status: OrderStatus.preparing, count: 3),
+    _OrderTab(title: l10n.ready, status: OrderStatus.ready, count: 2),
+    _OrderTab(title: l10n.completed, status: OrderStatus.completed, count: 45),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 400;
+    final tabs = _getTabs(l10n);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Orders'),
+        title: Text(l10n.orders),
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),
-            onPressed: _showFilterOptions,
+            onPressed: () => _showFilterOptions(l10n),
           ),
           IconButton(
             icon: const Icon(Icons.history),
@@ -55,7 +59,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
           isScrollable: isSmallScreen,
           tabAlignment: isSmallScreen ? TabAlignment.start : TabAlignment.fill,
           labelPadding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 12 : 8),
-          tabs: _tabs.map((tab) => Tab(
+          tabs: tabs.map((tab) => Tab(
             child: FittedBox(
               fit: BoxFit.scaleDown,
               child: Row(
@@ -93,12 +97,12 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: _tabs.map((tab) => _buildOrdersList(theme, tab.status)).toList(),
+        children: tabs.map((tab) => _buildOrdersList(theme, l10n, tab.status)).toList(),
       ),
     );
   }
 
-  Widget _buildOrdersList(ThemeData theme, OrderStatus status) {
+  Widget _buildOrdersList(ThemeData theme, AppLocalizations l10n, OrderStatus status) {
     // Mock data - will be replaced with real data from Supabase
     final orders = _getMockOrders(status);
 
@@ -114,7 +118,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
             ),
             const SizedBox(height: 16),
             Text(
-              'No ${status.name} orders',
+              l10n.noOrdersWithStatus(_getStatusDisplayName(l10n, status)),
               style: theme.textTheme.titleMedium?.copyWith(
                 color: Colors.grey[600],
               ),
@@ -131,12 +135,27 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: orders.length,
-        itemBuilder: (context, index) => _buildOrderCard(theme, orders[index]),
+        itemBuilder: (context, index) => _buildOrderCard(theme, l10n, orders[index]),
       ),
     );
   }
 
-  Widget _buildOrderCard(ThemeData theme, _Order order) {
+  String _getStatusDisplayName(AppLocalizations l10n, OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return l10n.newStatus.toLowerCase();
+      case OrderStatus.preparing:
+        return l10n.preparing.toLowerCase();
+      case OrderStatus.ready:
+        return l10n.ready.toLowerCase();
+      case OrderStatus.completed:
+        return l10n.completed.toLowerCase();
+      case OrderStatus.cancelled:
+        return l10n.cancelled.toLowerCase();
+    }
+  }
+
+  Widget _buildOrderCard(ThemeData theme, AppLocalizations l10n, _Order order) {
     final statusColor = _getStatusColor(order.status);
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 380;
@@ -148,7 +167,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
         side: BorderSide(color: statusColor.withOpacity(0.3)),
       ),
       child: InkWell(
-        onTap: () => _showOrderDetails(order),
+        onTap: () => _showOrderDetails(l10n, order),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
@@ -184,7 +203,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          'Order #${order.orderNumber}',
+                          '${l10n.order} #${order.orderNumber}',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: Colors.grey,
                             fontSize: isSmallScreen ? 11 : null,
@@ -207,7 +226,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          order.status.displayName,
+                          _getStatusDisplayName(l10n, order.status),
                           style: TextStyle(
                             color: statusColor,
                             fontSize: isSmallScreen ? 10 : 12,
@@ -283,14 +302,14 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
                     ),
                   ],
                 ),
-              )).toList(),
+              )),
               const Divider(height: 16),
               // Footer
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    '${order.items.length} items',
+                    l10n.items(order.items.length),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: Colors.grey,
                     ),
@@ -311,7 +330,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
                     if (order.status == OrderStatus.pending) ...[
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: () => _rejectOrder(order),
+                          onPressed: () => _rejectOrder(l10n, order),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.red,
                             padding: EdgeInsets.symmetric(
@@ -319,7 +338,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
                             ),
                           ),
                           child: Text(
-                            'Reject',
+                            l10n.reject,
                             style: TextStyle(fontSize: isSmallScreen ? 13 : 14),
                           ),
                         ),
@@ -328,7 +347,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
                     ],
                     Expanded(
                       child: FilledButton(
-                        onPressed: () => _updateOrderStatus(order),
+                        onPressed: () => _updateOrderStatus(l10n, order),
                         style: FilledButton.styleFrom(
                           padding: EdgeInsets.symmetric(
                             vertical: isSmallScreen ? 8 : 12,
@@ -337,7 +356,7 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Text(
-                            _getNextActionText(order.status),
+                            _getNextActionText(l10n, order.status),
                             style: TextStyle(fontSize: isSmallScreen ? 13 : 14),
                           ),
                         ),
@@ -368,20 +387,20 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
     }
   }
 
-  String _getNextActionText(OrderStatus status) {
+  String _getNextActionText(AppLocalizations l10n, OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
-        return 'Accept & Start';
+        return l10n.acceptAndStart;
       case OrderStatus.preparing:
-        return 'Mark Ready';
+        return l10n.markAsReady;
       case OrderStatus.ready:
-        return 'Complete';
+        return l10n.complete;
       default:
         return '';
     }
   }
 
-  void _showOrderDetails(_Order order) {
+  void _showOrderDetails(AppLocalizations l10n, _Order order) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -395,35 +414,36 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
         expand: false,
         builder: (context, scrollController) => _OrderDetailsSheet(
           order: order,
+          l10n: l10n,
           scrollController: scrollController,
           onStatusUpdate: () {
             Navigator.pop(context);
-            _updateOrderStatus(order);
+            _updateOrderStatus(l10n, order);
           },
         ),
       ),
     );
   }
 
-  void _updateOrderStatus(_Order order) {
+  void _updateOrderStatus(AppLocalizations l10n, _Order order) {
     // TODO: Update order status in database
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Order #${order.orderNumber} status updated'),
+        content: Text(l10n.orderStatusUpdated(order.orderNumber)),
       ),
     );
   }
 
-  void _rejectOrder(_Order order) {
+  void _rejectOrder(AppLocalizations l10n, _Order order) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reject Order'),
-        content: Text('Are you sure you want to reject order #${order.orderNumber}?'),
+        title: Text(l10n.rejectOrder),
+        content: Text(l10n.rejectOrderConfirm(order.orderNumber)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(l10n.cancel),
           ),
           FilledButton(
             onPressed: () {
@@ -431,31 +451,31 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
               // TODO: Reject order
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Order #${order.orderNumber} rejected'),
+                  content: Text(l10n.orderRejected(order.orderNumber)),
                   backgroundColor: Colors.red,
                 ),
               );
             },
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Reject'),
+            child: Text(l10n.reject),
           ),
         ],
       ),
     );
   }
 
-  void _showFilterOptions() {
+  void _showFilterOptions(AppLocalizations l10n) {
     showModalBottomSheet(
       context: context,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
+            Padding(
+              padding: const EdgeInsets.all(16),
               child: Text(
-                'Filter Orders',
-                style: TextStyle(
+                l10n.filterOrders,
+                style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
@@ -463,17 +483,17 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
             ),
             ListTile(
               leading: const Icon(Icons.calendar_today),
-              title: const Text('Today'),
+              title: Text(l10n.today),
               onTap: () => Navigator.pop(context),
             ),
             ListTile(
               leading: const Icon(Icons.date_range),
-              title: const Text('This Week'),
+              title: Text(l10n.thisWeek),
               onTap: () => Navigator.pop(context),
             ),
             ListTile(
               leading: const Icon(Icons.table_bar),
-              title: const Text('By Table'),
+              title: Text(l10n.byTable),
               onTap: () => Navigator.pop(context),
             ),
           ],
@@ -544,11 +564,13 @@ class _OrdersPageState extends ConsumerState<OrdersPage>
 
 class _OrderDetailsSheet extends StatelessWidget {
   final _Order order;
+  final AppLocalizations l10n;
   final ScrollController scrollController;
   final VoidCallback onStatusUpdate;
 
   const _OrderDetailsSheet({
     required this.order,
+    required this.l10n,
     required this.scrollController,
     required this.onStatusUpdate,
   });
@@ -581,7 +603,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Order #${order.orderNumber}',
+                        l10n.orderNumber(int.parse(order.orderNumber)),
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -606,7 +628,7 @@ class _OrderDetailsSheet extends StatelessWidget {
               
               // Items
               Text(
-                'Order Items',
+                l10n.orderItems,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -649,7 +671,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                           ),
                           if (item.notes != null)
                             Text(
-                              'Note: ${item.notes}',
+                              l10n.note(item.notes!),
                               style: TextStyle(
                                 color: Colors.orange[700],
                                 fontSize: 12,
@@ -673,7 +695,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Total',
+                    l10n.total,
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -708,11 +730,11 @@ class _OrderDetailsSheet extends StatelessWidget {
   String _getActionText() {
     switch (order.status) {
       case OrderStatus.pending:
-        return 'Accept & Start Preparing';
+        return l10n.acceptAndStartPreparing;
       case OrderStatus.preparing:
-        return 'Mark as Ready';
+        return l10n.markAsReady;
       case OrderStatus.ready:
-        return 'Complete Order';
+        return l10n.complete;
       default:
         return '';
     }
