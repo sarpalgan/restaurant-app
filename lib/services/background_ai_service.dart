@@ -5,8 +5,11 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/config/app_config.dart';
+import '../core/models/pending_ai_menu_result.dart';
+import '../providers/pending_ai_menu_provider.dart';
 import 'ai_menu_service.dart';
 import 'notification_service.dart';
 
@@ -62,11 +65,26 @@ class BackgroundAIService {
 
   final NotificationService _notifications = NotificationService();
   
+  // Static provider container reference - set from main.dart
+  static ProviderContainer? _providerContainer;
+  
+  /// Set the provider container for saving results
+  /// This should be called from main.dart after ProviderScope is created
+  static void setProviderContainer(ProviderContainer container) {
+    _providerContainer = container;
+  }
+  
   // Active analysis tracking
   Isolate? _activeIsolate;
   ReceivePort? _receivePort;
   StreamController<AIAnalysisBackgroundResult>? _resultController;
   bool _isProcessing = false;
+  
+  // Restaurant ID for saving results
+  String? _restaurantId;
+  
+  // Callback to save result to provider (set by caller) - legacy, still works if set
+  void Function(MenuAnalysisResult result, String resultId)? onResultReady;
   
   static const int _progressNotificationId = 1001;
   static const Duration _timeout = Duration(minutes: 12);
@@ -77,11 +95,13 @@ class BackgroundAIService {
   /// Returns a stream of progress updates and the final result
   Stream<AIAnalysisBackgroundResult> analyzeInBackground({
     required List<Uint8List> images,
+    String? restaurantId,
   }) {
     // Cancel any existing analysis
     cancelAnalysis();
 
     _isProcessing = true;
+    _restaurantId = restaurantId;
     _resultController = StreamController<AIAnalysisBackgroundResult>.broadcast();
 
     // Start the analysis
@@ -116,11 +136,20 @@ class BackgroundAIService {
       await _notifications.cancel(_progressNotificationId);
       
       if (result != null) {
-        // Show success notification
+        // Generate a unique result ID
+        final resultId = '${_restaurantId ?? 'unknown'}_${DateTime.now().millisecondsSinceEpoch}';
+        
+        // Save result to provider (using static container)
+        _saveResultToProvider(result, resultId);
+        
+        // Also call legacy callback if set
+        onResultReady?.call(result, resultId);
+        
+        // Show success notification with result ID in payload
         await _notifications.showAIMenuComplete(
           title: 'Menu Analysis Complete! ✓',
-          body: 'Found ${result.totalItems} items in ${result.totalCategories} categories',
-          payload: 'ai_menu_complete',
+          body: 'Found ${result.totalItems} items in ${result.totalCategories} categories. Tap to view.',
+          payload: 'ai_menu_complete:$resultId',
         );
 
         _resultController?.add(AIAnalysisBackgroundResult(
@@ -150,6 +179,26 @@ class BackgroundAIService {
     } finally {
       _isProcessing = false;
       _resultController?.close();
+    }
+  }
+  
+  /// Save result to the pending results provider
+  void _saveResultToProvider(MenuAnalysisResult result, String resultId) {
+    if (_providerContainer == null) {
+      debugPrint('Warning: ProviderContainer not set, cannot save result to provider');
+      return;
+    }
+    
+    try {
+      final pendingResult = PendingAIMenuResult.fromAnalysisResult(
+        id: resultId,
+        restaurantId: _restaurantId ?? 'unknown',
+        analysisResult: result,
+      );
+      _providerContainer!.read(pendingAIMenuResultsProvider.notifier).addResult(pendingResult);
+      debugPrint('AI Menu result saved with ID: $resultId');
+    } catch (e) {
+      debugPrint('Error saving result to provider: $e');
     }
   }
 

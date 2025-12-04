@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../main.dart';
 import '../core/models/menu_template.dart';
+import '../core/models/pending_ai_menu_result.dart';
 import '../core/config/app_config.dart';
 import 'ai_menu_service.dart';
 import 'menu_service.dart';
@@ -246,7 +247,9 @@ class MenuTemplateService {
         }
       }
 
-      itemDisplayOrders[categoryId] = (itemDisplayOrders[categoryId] ?? 0) + 1;
+      // Get current sort order for this category, then increment
+      final itemSortOrder = itemDisplayOrders[categoryId] ?? 0;
+      itemDisplayOrders[categoryId] = itemSortOrder + 1;
 
       // Safely get item name and description with fallbacks
       final itemName = translatedNames['en'] ?? (itemData['name'] as String?) ?? 'Unnamed Item';
@@ -259,7 +262,7 @@ class MenuTemplateService {
         name: itemName,
         description: itemDescription,
         price: itemPrice,
-        sortOrder: itemDisplayOrders[categoryId],
+        sortOrder: itemSortOrder,  // Use 0-based sort order
       );
 
       // Add translations (skip 'en' as it's already added by createItem)
@@ -313,6 +316,88 @@ class MenuTemplateService {
     }).select().single();
 
     return MenuTemplate.fromJson(copyResponse);
+  }
+
+  /// Save a PendingAIMenuResult as a template (from background processing)
+  Future<MenuTemplate> saveTemplateFromPendingResult({
+    required String restaurantId,
+    required String name,
+    String? description,
+    required PendingAIMenuResult result,
+    required Set<int> selectedItems,
+  }) async {
+    final templateData = _convertPendingResultToTemplateData(result, selectedItems);
+
+    final response = await supabase.from('menu_templates').insert({
+      'restaurant_id': restaurantId,
+      'name': name,
+      'description': description,
+      'detected_language': result.detectedLanguage,
+      'detected_language_name': result.detectedLanguageName,
+      'currency': result.currency,
+      'template_data': templateData,
+      'is_active': false,
+    }).select().single();
+
+    return MenuTemplate.fromJson(response);
+  }
+
+  /// Save and activate a PendingAIMenuResult as a template
+  Future<MenuTemplate> saveAndActivateTemplateFromPendingResult({
+    required String restaurantId,
+    required String name,
+    String? description,
+    required PendingAIMenuResult result,
+    required Set<int> selectedItems,
+  }) async {
+    // First deactivate all existing templates
+    await deactivateAllTemplates(restaurantId);
+
+    final templateData = _convertPendingResultToTemplateData(result, selectedItems);
+
+    final response = await supabase.from('menu_templates').insert({
+      'restaurant_id': restaurantId,
+      'name': name,
+      'description': description,
+      'detected_language': result.detectedLanguage,
+      'detected_language_name': result.detectedLanguageName,
+      'currency': result.currency,
+      'template_data': templateData,
+      'is_active': true,
+    }).select().single();
+
+    return MenuTemplate.fromJson(response);
+  }
+
+  /// Convert PendingAIMenuResult to storable template data
+  Map<String, dynamic> _convertPendingResultToTemplateData(
+    PendingAIMenuResult result,
+    Set<int> selectedItems,
+  ) {
+    // Filter to only selected items
+    final selectedItemsList = <Map<String, dynamic>>[];
+    for (int i = 0; i < result.items.length; i++) {
+      if (selectedItems.contains(i)) {
+        final item = result.items[i];
+        selectedItemsList.add(item.toJson());
+      }
+    }
+
+    // Get categories that have selected items
+    final usedCategories = selectedItemsList.map((i) => i['category']).toSet();
+    final filteredCategories = result.categories
+        .where((c) => usedCategories.contains(c.name))
+        .map((c) => {
+              'name': c.name,
+              'original_language': c.originalLanguage,
+              'translated_names': c.translatedNames,
+            })
+        .toList();
+
+    return {
+      'categories': filteredCategories,
+      'items': selectedItemsList,
+    };
   }
 }
 

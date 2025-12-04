@@ -188,10 +188,12 @@ class AIMenuService {
         },
       }).toList();
 
-      onProgress?.call('Analyzing menu with AI (this may take a minute)...', 0.3);
-
+      onProgress?.call('Uploading images to AI...', 0.2);
+      
       // Build the prompt for Gemini
       final prompt = _buildAnalysisPrompt();
+      
+      onProgress?.call('AI is analyzing menu (this may take several minutes)...', 0.3);
       debugPrint('Sending request to Gemini API for extraction...');
 
       // Call Gemini API - using gemini-3-pro-preview for vision capabilities
@@ -200,8 +202,8 @@ class AIMenuService {
         queryParameters: {'key': AppConfig.geminiApiKey},
         options: Options(
           headers: {'Content-Type': 'application/json'},
-          receiveTimeout: const Duration(minutes: 5),
-          sendTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(minutes: 10),
+          sendTimeout: const Duration(minutes: 2),
         ),
         data: {
           'contents': [
@@ -226,17 +228,26 @@ class AIMenuService {
       );
 
       debugPrint('Response received from Gemini API');
-      onProgress?.call('Processing results...', 0.6);
+      onProgress?.call('AI analysis complete, extracting items...', 0.5);
+      
+      // Small delay to show progress
+      await Future.delayed(const Duration(milliseconds: 100));
+      onProgress?.call('Processing detected menu items...', 0.55);
 
       // Parse the response
       final result = _parseGeminiResponse(response.data);
       debugPrint('Parsed ${result.items.length} items in ${result.categories.length} categories');
       
-      onProgress?.call('Translating menu items...', 0.8);
+      onProgress?.call('Found ${result.items.length} items in ${result.categories.length} categories', 0.6);
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      onProgress?.call('Starting translation to all languages...', 0.65);
       
       // Translate items using a separate model
       final translatedResult = await _translateAllItems(result, onProgress);
       
+      onProgress?.call('Finalizing menu...', 0.95);
+      await Future.delayed(const Duration(milliseconds: 200));
       onProgress?.call('Complete!', 1.0);
       
       return translatedResult;
@@ -325,6 +336,8 @@ Important:
       }
 
       final prompt = _buildTranslationPrompt(extractionResult);
+      
+      onProgress?.call('Translating ${extractionResult.items.length} items to 8 languages...', 0.7);
       debugPrint('Sending request to Gemini API for translation...');
 
       // Call Gemini API - using gemini-2.5-flash-lite for faster text processing
@@ -333,8 +346,8 @@ Important:
         queryParameters: {'key': AppConfig.geminiApiKey},
         options: Options(
           headers: {'Content-Type': 'application/json'},
-          receiveTimeout: const Duration(minutes: 5),
-          sendTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(minutes: 10),
+          sendTimeout: const Duration(minutes: 2),
         ),
         data: {
           'contents': [
@@ -353,7 +366,9 @@ Important:
       );
 
       debugPrint('Translation response received from Gemini API');
-      onProgress?.call('Finalizing menu...', 0.9);
+      onProgress?.call('Translation complete, applying to menu items...', 0.85);
+      await Future.delayed(const Duration(milliseconds: 100));
+      onProgress?.call('Applying translations...', 0.9);
 
       return _parseTranslationResponse(response.data, extractionResult);
     } catch (e) {

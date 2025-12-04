@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -9,6 +11,15 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
   bool _isInitialized = false;
+  
+  // Stream controller for notification taps - allows any part of the app to listen
+  static final _notificationTapController = StreamController<String>.broadcast();
+  
+  /// Stream of notification tap payloads
+  static Stream<String> get onNotificationTap => _notificationTapController.stream;
+  
+  /// Pending payload from notification tap (when app was not running)
+  static String? pendingPayload;
 
   /// Initialize the notification service
   Future<void> initialize() async {
@@ -30,6 +41,14 @@ class NotificationService {
       initSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
+    
+    // Check if app was launched from notification
+    final launchDetails = await _notifications.getNotificationAppLaunchDetails();
+    if (launchDetails?.didNotificationLaunchApp == true && 
+        launchDetails?.notificationResponse?.payload != null) {
+      pendingPayload = launchDetails!.notificationResponse!.payload;
+      debugPrint('App launched from notification with payload: $pendingPayload');
+    }
 
     // Request permissions on Android 13+
     await _requestPermissions();
@@ -49,7 +68,9 @@ class NotificationService {
 
   void _onNotificationTapped(NotificationResponse response) {
     debugPrint('Notification tapped: ${response.payload}');
-    // Handle notification tap - could navigate to specific page
+    if (response.payload != null && response.payload!.isNotEmpty) {
+      _notificationTapController.add(response.payload!);
+    }
   }
 
   /// Show a notification for AI menu analysis completion

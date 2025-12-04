@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/routing/app_router.dart';
 import '../../../../l10n/app_localizations.dart';
+import '../../../../providers/pending_ai_menu_provider.dart';
+import '../../../../core/models/pending_ai_menu_result.dart';
 
 class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
@@ -26,12 +28,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
         title: Text(l10n.appName),
         centerTitle: false,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {
-              // TODO: Show notifications
-            },
-          ),
+          _buildNotificationButton(),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => context.push(Routes.adminSettings),
@@ -118,6 +115,177 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildNotificationButton() {
+    final pendingResults = ref.watch(pendingAIMenuResultsProvider);
+    final completedCount = pendingResults
+        .where((r) => r.status == AIMenuResultStatus.completed)
+        .length;
+
+    return Stack(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.notifications_outlined),
+          onPressed: () => _showNotificationsSheet(),
+        ),
+        if (completedCount > 0)
+          Positioned(
+            right: 6,
+            top: 6,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+              constraints: const BoxConstraints(
+                minWidth: 18,
+                minHeight: 18,
+              ),
+              child: Text(
+                '$completedCount',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _showNotificationsSheet() {
+    final pendingResults = ref.read(pendingAIMenuResultsProvider);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 0.85,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Notifications',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: pendingResults.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.notifications_none,
+                              size: 64, color: Colors.grey),
+                          SizedBox(height: 16),
+                          Text(
+                            'No notifications',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      itemCount: pendingResults.length,
+                      itemBuilder: (context, index) {
+                        final result = pendingResults[index];
+                        return _buildNotificationTile(result);
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotificationTile(PendingAIMenuResult result) {
+    IconData icon;
+    Color color;
+    String title;
+    String subtitle;
+
+    switch (result.status) {
+      case AIMenuResultStatus.completed:
+        icon = Icons.check_circle;
+        color = Colors.green;
+        title = 'Menu Analysis Complete';
+        subtitle = '${result.items.length} items in ${result.categories.length} categories';
+        break;
+      case AIMenuResultStatus.pending:
+        icon = Icons.hourglass_empty;
+        color = Colors.orange;
+        title = 'Analyzing Menu...';
+        subtitle = 'Processing in background';
+        break;
+      case AIMenuResultStatus.failed:
+        icon = Icons.error;
+        color = Colors.red;
+        title = 'Analysis Failed';
+        subtitle = result.errorMessage ?? 'Unknown error';
+        break;
+      case AIMenuResultStatus.imported:
+        icon = Icons.done_all;
+        color = Colors.blue;
+        title = 'Menu Imported';
+        subtitle = '${result.items.length} items imported';
+        break;
+      case AIMenuResultStatus.saved:
+        icon = Icons.bookmark;
+        color = Colors.purple;
+        title = 'Menu Saved';
+        subtitle = 'Saved as template';
+        break;
+      default:
+        icon = Icons.info;
+        color = Colors.grey;
+        title = 'AI Menu Result';
+        subtitle = '';
+    }
+
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: color.withOpacity(0.1),
+        child: Icon(icon, color: color),
+      ),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: result.status == AIMenuResultStatus.completed
+          ? const Icon(Icons.arrow_forward_ios, size: 16)
+          : null,
+      onTap: result.status == AIMenuResultStatus.completed
+          ? () {
+              Navigator.pop(context);
+              context.push('/admin/menu/ai-result/${result.id}');
+            }
+          : null,
     );
   }
 

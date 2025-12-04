@@ -10,6 +10,7 @@ import '../../features/admin/presentation/pages/dashboard_page.dart';
 import '../../features/menu/presentation/pages/menu_management_page.dart';
 import '../../features/menu/presentation/pages/menu_item_edit_page.dart';
 import '../../features/menu/presentation/pages/ai_menu_creator_page.dart';
+import '../../features/menu/presentation/pages/ai_menu_result_page.dart';
 import '../../features/menu/presentation/pages/saved_menus_page.dart';
 import '../../features/orders/presentation/pages/orders_page.dart';
 import '../../features/analytics/presentation/pages/analytics_page.dart';
@@ -33,6 +34,7 @@ class Routes {
   static const String adminMenuAdd = '/admin/menu/add';
   static const String adminMenuEdit = '/admin/menu/:itemId';
   static const String adminAiMenuCreator = '/admin/menu/ai-creator';
+  static const String adminAiMenuResult = '/admin/menu/ai-result/:resultId';
   static const String adminSavedMenus = '/admin/menu/saved';
   static const String adminOrders = '/admin/orders';
   static const String adminTables = '/admin/tables';
@@ -138,6 +140,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: Routes.adminAiMenuCreator,
         name: 'adminAiMenuCreator',
         builder: (context, state) => const AIMenuCreatorPage(),
+      ),
+      GoRoute(
+        path: '/admin/menu/ai-result/:resultId',
+        name: 'adminAiMenuResult',
+        builder: (context, state) {
+          final resultId = state.pathParameters['resultId']!;
+          return AIMenuResultPage(resultId: resultId);
+        },
       ),
       GoRoute(
         path: Routes.adminSavedMenus,

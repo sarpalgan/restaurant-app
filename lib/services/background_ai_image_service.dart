@@ -12,6 +12,7 @@ import 'notification_service.dart';
 class AIImageJob {
   final String id;
   final String menuItemId;
+  final String categoryId;
   final String dishName;
   final String? description;
   final String referenceImageBase64;
@@ -24,6 +25,7 @@ class AIImageJob {
   const AIImageJob({
     required this.id,
     required this.menuItemId,
+    required this.categoryId,
     required this.dishName,
     this.description,
     required this.referenceImageBase64,
@@ -43,6 +45,7 @@ class AIImageJob {
     return AIImageJob(
       id: id,
       menuItemId: menuItemId,
+      categoryId: categoryId,
       dishName: dishName,
       description: description,
       referenceImageBase64: referenceImageBase64,
@@ -116,11 +119,13 @@ class BackgroundAIImageService {
   /// 4. Auto-save the generated image to the database
   /// 
   /// [menuItemId] - The menu item to generate image for
+  /// [categoryId] - The category ID (needed for navigation on notification tap)
   /// [dishNameEnglish] - The dish name in ENGLISH (always use English for AI)
   /// [descriptionEnglish] - The description in ENGLISH (always use English for AI)
   /// [referenceImageBase64] - The original image as base64 data URI
   Future<String> startGenerationJob({
     required String menuItemId,
+    required String categoryId,
     required String dishNameEnglish,
     String? descriptionEnglish,
     required String referenceImageBase64,
@@ -133,6 +138,7 @@ class BackgroundAIImageService {
     final job = AIImageJob(
       id: jobId,
       menuItemId: menuItemId,
+      categoryId: categoryId,
       dishName: dishNameEnglish,
       description: descriptionEnglish,
       referenceImageBase64: referenceImageBase64,
@@ -208,11 +214,12 @@ class BackgroundAIImageService {
         _jobController.add(_activeJobs);
         
         // Cancel progress notification and show success
+        // Payload format: ai_image_complete:menuItemId:categoryId
         await _notifications.cancel(notificationId);
         await _notifications.showAIImageComplete(
           title: 'AI Image Ready! ✓',
-          body: '"${job.dishName}" - Professional photo saved',
-          payload: 'ai_image_complete:${job.menuItemId}',
+          body: '"${job.dishName}" - Tap to view',
+          payload: 'ai_image_complete:${job.menuItemId}:${job.categoryId}',
         );
         
         debugPrint('AI Image generated and saved for ${job.menuItemId}');

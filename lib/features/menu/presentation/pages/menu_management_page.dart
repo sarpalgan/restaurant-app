@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +12,7 @@ import '../../../../services/background_ai_image_service.dart';
 import '../../../../services/image_service.dart';
 import '../../../../services/language_service.dart';
 import '../../../../services/menu_service.dart';
+import '../../../../services/notification_service.dart';
 import '../../../../services/restaurant_service.dart';
 import '../../../../services/translation_service.dart';
 
@@ -26,15 +29,112 @@ class _MenuManagementPageState extends ConsumerState<MenuManagementPage>
   int _lastCategoryCount = 0;
   String? _restaurantId;
   late final ProviderContainer _container;
+  StreamSubscription<String>? _notificationSubscription;
+  bool _isReorderMode = false;
 
   @override
   void initState() {
     super.initState();
     _container = ProviderScope.containerOf(context, listen: false);
+    _setupNotificationListener();
+    _checkPendingNotification();
+  }
+  
+  void _setupNotificationListener() {
+    _notificationSubscription = NotificationService.onNotificationTap.listen((payload) {
+      _handleNotificationPayload(payload);
+    });
+  }
+  
+  void _checkPendingNotification() {
+    // Check if app was launched from notification
+    if (NotificationService.pendingPayload != null) {
+      final payload = NotificationService.pendingPayload!;
+      NotificationService.pendingPayload = null;
+      // Delay to allow the widget tree to build
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _handleNotificationPayload(payload);
+        }
+      });
+    }
+  }
+  
+  void _handleNotificationPayload(String payload) {
+    debugPrint('Handling notification payload: $payload');
+    
+    // Parse payload format: ai_image_complete:menuItemId:categoryId
+    if (payload.startsWith('ai_image_complete:')) {
+      final parts = payload.split(':');
+      if (parts.length >= 3) {
+        final menuItemId = parts[1];
+        final categoryId = parts[2];
+        _openEditItemFromNotification(menuItemId, categoryId);
+      }
+    }
+    // Parse payload format: ai_menu_complete:resultId
+    else if (payload.startsWith('ai_menu_complete:')) {
+      final parts = payload.split(':');
+      if (parts.length >= 2) {
+        final resultId = parts[1];
+        context.push('/admin/menu/ai-result/$resultId');
+      }
+    }
+    // Parse payload format: ai_menu_error:resultId
+    else if (payload.startsWith('ai_menu_error:')) {
+      final parts = payload.split(':');
+      if (parts.length >= 2) {
+        final resultId = parts[1];
+        context.push('/admin/menu/ai-result/$resultId');
+      }
+    }
+  }
+  
+  Future<void> _openEditItemFromNotification(String menuItemId, String categoryId) async {
+    debugPrint('Opening edit item from notification: $menuItemId, category: $categoryId');
+    
+    try {
+      // Refresh the menu items for this category first
+      ref.invalidate(menuItemsProvider(categoryId));
+      
+      // Wait a bit for the data to load
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      // Fetch the menu item
+      final menuService = ref.read(menuServiceProvider);
+      final item = await menuService.getItemById(menuItemId);
+      
+      if (item != null && mounted) {
+        // Show the edit sheet
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          useSafeArea: true,
+          backgroundColor: Colors.transparent,
+          builder: (ctx) => _EditItemSheet(
+            item: item,
+            categoryId: categoryId,
+          ),
+        );
+      } else {
+        debugPrint('Could not find menu item: $menuItemId');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not find the menu item'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error opening edit item from notification: $e');
+    }
   }
 
   @override
   void dispose() {
+    _notificationSubscription?.cancel();
     _tabController?.dispose();
     super.dispose();
   }
@@ -105,6 +205,11 @@ class _MenuManagementPageState extends ConsumerState<MenuManagementPage>
     _initTabController(categories.length);
     final l10n = AppLocalizations.of(context)!;
 
+    // If in reorder mode, show the reorder UI
+    if (_isReorderMode) {
+      return _buildReorderUI(theme, restaurantId, categories, l10n);
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.menu),
@@ -148,7 +253,17 @@ class _MenuManagementPageState extends ConsumerState<MenuManagementPage>
                   children: [
                     Icon(Icons.reorder),
                     SizedBox(width: 8),
-                    Text('Reorder Categories'),
+                    Text('Reorder Menu'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'fix_order',
+                child: Row(
+                  children: [
+                    Icon(Icons.sort, color: Colors.blue),
+                    SizedBox(width: 8),
+                    Text('Fix Sort Orders'),
                   ],
                 ),
               ),
@@ -213,6 +328,9 @@ class _MenuManagementPageState extends ConsumerState<MenuManagementPage>
         _showAddCategoryDialog();
         break;
       case 'reorder':
+        setState(() {
+          _isReorderMode = true;
+        });
         break;
       case 'saved_menus':
         context.push(Routes.adminSavedMenus);
@@ -223,12 +341,119 @@ class _MenuManagementPageState extends ConsumerState<MenuManagementPage>
       case 'language':
         _showLanguageSelector();
         break;
+      case 'fix_order':
+        _fixSortOrders(restaurantId);
+        break;
+    }
+  }
+
+  Future<void> _fixSortOrders(String restaurantId) async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Fix Sort Orders'),
+        content: const Text(
+          'This will renumber all categories and items based on their current order. '
+          'Use this if your menu appears in the wrong order after migration or import.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Fix Order'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Show loading overlay
+    late final OverlayEntry loadingOverlay;
+    loadingOverlay = OverlayEntry(
+      builder: (context) => Container(
+        color: Colors.black54,
+        child: const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 16),
+                  Text('Fixing sort orders...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    
+    Overlay.of(context).insert(loadingOverlay);
+
+    try {
+      final menuService = ref.read(menuServiceProvider);
+      await menuService.fixSortOrders(restaurantId);
+
+      // Refresh data
+      ref.invalidate(menuCategoriesProvider(restaurantId));
+      
+      // Also invalidate items for all categories
+      final categories = await ref.read(menuCategoriesProvider(restaurantId).future);
+      for (final cat in categories) {
+        ref.invalidate(menuItemsProvider(cat.id));
+      }
+
+      loadingOverlay.remove();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sort orders fixed successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      loadingOverlay.remove();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
   
   void _showLanguageSelector() {
     // Use the built-in helper from language_service
     showAppLanguageBottomSheet(context, ref);
+  }
+
+  Widget _buildReorderUI(ThemeData theme, String restaurantId, List<MenuCategory> categories, AppLocalizations l10n) {
+    return _ReorderableMenuList(
+      categories: categories,
+      restaurantId: restaurantId,
+      onCancel: () => setState(() => _isReorderMode = false),
+      onSave: () async {
+        // Refresh all data after saving
+        ref.invalidate(menuCategoriesProvider(restaurantId));
+        for (final category in categories) {
+          ref.invalidate(menuItemsProvider(category.id));
+        }
+        setState(() => _isReorderMode = false);
+      },
+      menuService: ref.read(menuServiceProvider),
+    );
   }
 
   Widget _buildEmptyState(ThemeData theme) {
@@ -690,14 +915,20 @@ class _MenuItemsList extends ConsumerWidget {
     );
   }
 
-  void _showEditDialog(BuildContext context, WidgetRef ref, MenuItem item) {
+  Future<void> _showEditDialog(BuildContext context, WidgetRef ref, MenuItem item) async {
+    // Fetch fresh data from the database to get the latest AI-generated images
+    final menuService = ref.read(menuServiceProvider);
+    final freshItem = await menuService.getItemById(item.id);
+    
+    if (!context.mounted) return;
+    
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _EditItemSheet(
-        item: item,
+        item: freshItem ?? item,  // Use fresh data if available, otherwise fall back
         categoryId: category.id,
       ),
     );
@@ -1201,12 +1432,46 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
         // Convert to base64 and set as original image
         final base64Image = await imageService.convertToBase64DataUri(pickedFile);
         if (mounted && base64Image.isNotEmpty) {
+          // Update local state immediately
           setState(() {
             _originalUploadedImage = base64Image;
             _currentImageUrl = base64Image; // Auto-select the new original
             _newImageFile = null;
             _imageDeleted = false;
           });
+          
+          // *** AUTO-SAVE: Immediately save to database ***
+          try {
+            final menuService = ref.read(menuServiceProvider);
+            await menuService.updateItem(
+              id: widget.item.id,
+              originalImageUrl: base64Image,
+              imageUrl: base64Image, // Also set as main image initially
+            );
+            
+            // Refresh the menu items list
+            ref.invalidate(menuItemsProvider(widget.categoryId));
+            
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Original image uploaded and saved!'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          } catch (e) {
+            debugPrint('Error saving original image: $e');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Image displayed but save failed: $e'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+          }
         }
       }
     } finally {
@@ -1253,6 +1518,7 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
       // Start background job - this will continue even if user closes the sheet
       final jobId = await backgroundService.startGenerationJob(
         menuItemId: widget.item.id,
+        categoryId: widget.categoryId,
         dishNameEnglish: dishNameEnglish,
         descriptionEnglish: descriptionEnglish.isEmpty ? null : descriptionEnglish,
         referenceImageBase64: _originalUploadedImage!,
@@ -2771,7 +3037,7 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 40),
                         child: Text(
-                          'Using Gemini AI to create a professional food photo based on your image',
+                          'Using AI to create a professional food photo based on your image',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.8),
@@ -2819,4 +3085,295 @@ class _VariantEditData {
     required this.priceController,
     required this.isNew,
   });
+}
+
+// Reorderable menu list widget for drag-and-drop reordering
+class _ReorderableMenuList extends ConsumerStatefulWidget {
+  final List<MenuCategory> categories;
+  final String restaurantId;
+  final VoidCallback onCancel;
+  final Future<void> Function() onSave;
+  final MenuService menuService;
+
+  const _ReorderableMenuList({
+    required this.categories,
+    required this.restaurantId,
+    required this.onCancel,
+    required this.onSave,
+    required this.menuService,
+  });
+
+  @override
+  ConsumerState<_ReorderableMenuList> createState() => _ReorderableMenuListState();
+}
+
+class _ReorderableMenuListState extends ConsumerState<_ReorderableMenuList> {
+  late List<MenuCategory> _categories;
+  Map<String, List<MenuItem>> _itemsByCategory = {};
+  Set<String> _modifiedCategories = {};
+  Set<String> _modifiedItemCategories = {};
+  String? _expandedCategoryId;
+  bool _isSaving = false;
+  bool _isLoadingItems = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _categories = List.from(widget.categories);
+    _loadAllItems();
+  }
+
+  Future<void> _loadAllItems() async {
+    setState(() => _isLoadingItems = true);
+    
+    for (final category in _categories) {
+      final items = await ref.read(menuItemsProvider(category.id).future);
+      _itemsByCategory[category.id] = List.from(items);
+    }
+    
+    if (mounted) {
+      setState(() => _isLoadingItems = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lang = ref.watch(appLocaleProvider).languageCode;
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: widget.onCancel,
+        ),
+        title: const Text('Reorder Menu'),
+        actions: [
+          if (_modifiedCategories.isNotEmpty || _modifiedItemCategories.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Unsaved changes',
+                    style: TextStyle(color: Colors.orange[700], fontSize: 12),
+                  ),
+                ),
+              ),
+            ),
+          TextButton(
+            onPressed: _isSaving ? null : _saveAllChanges,
+            child: _isSaving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Done', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+      body: _isLoadingItems
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                // Instructions
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  color: Colors.blue.withOpacity(0.1),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Hold and drag to reorder categories. Tap a category to reorder its items.',
+                          style: TextStyle(color: Colors.blue[700], fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Categories list
+                Expanded(
+                  child: _categories.isEmpty
+                      ? Center(
+                          child: Text('No categories to reorder', style: TextStyle(color: Colors.grey[600])),
+                        )
+                      : ReorderableListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _categories.length,
+                          onReorder: _onReorderCategories,
+                          itemBuilder: (context, index) {
+                            final category = _categories[index];
+                            final catName = category.translations[lang]?.name ??
+                                category.translations['en']?.name ??
+                                'Category';
+                            final isExpanded = _expandedCategoryId == category.id;
+                            final items = _itemsByCategory[category.id] ?? [];
+
+                            return Card(
+                              key: ValueKey(category.id),
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: Column(
+                                children: [
+                                  ListTile(
+                                    leading: ReorderableDragStartListener(
+                                      index: index,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(8),
+                                        child: const Icon(Icons.drag_handle, color: Colors.grey),
+                                      ),
+                                    ),
+                                    title: Text(
+                                      catName,
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    subtitle: Text('${items.length} items'),
+                                    trailing: IconButton(
+                                      icon: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
+                                      onPressed: () {
+                                        setState(() {
+                                          _expandedCategoryId = isExpanded ? null : category.id;
+                                        });
+                                      },
+                                    ),
+                                    onTap: () {
+                                      setState(() {
+                                        _expandedCategoryId = isExpanded ? null : category.id;
+                                      });
+                                    },
+                                  ),
+                                  if (isExpanded)
+                                    _buildItemsList(category.id, items, lang, theme),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildItemsList(String categoryId, List<MenuItem> items, String lang, ThemeData theme) {
+    if (items.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          'No items in this category',
+          style: TextStyle(color: Colors.grey[600]),
+        ),
+      );
+    }
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: items.length * 72.0 + 16,
+      ),
+      child: ReorderableListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        itemCount: items.length,
+        onReorder: (oldIndex, newIndex) => _onReorderItems(categoryId, oldIndex, newIndex),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final itemName = item.translations[lang]?.name ??
+              item.translations['en']?.name ??
+              'Item';
+
+          return Container(
+            key: ValueKey(item.id),
+            margin: const EdgeInsets.only(bottom: 4),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ListTile(
+              dense: true,
+              leading: ReorderableDragStartListener(
+                index: index,
+                child: const Icon(Icons.drag_indicator, color: Colors.grey, size: 20),
+              ),
+              title: Text(itemName, style: const TextStyle(fontSize: 14)),
+              trailing: Text(
+                '\$${item.price.toStringAsFixed(2)}',
+                style: TextStyle(
+                  color: theme.primaryColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _onReorderCategories(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) newIndex--;
+      final item = _categories.removeAt(oldIndex);
+      _categories.insert(newIndex, item);
+      _modifiedCategories = _categories.map((c) => c.id).toSet();
+    });
+  }
+
+  void _onReorderItems(String categoryId, int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) newIndex--;
+      final items = _itemsByCategory[categoryId]!;
+      final item = items.removeAt(oldIndex);
+      items.insert(newIndex, item);
+      _modifiedItemCategories.add(categoryId);
+    });
+  }
+
+  Future<void> _saveAllChanges() async {
+    setState(() => _isSaving = true);
+
+    try {
+      // Save category order if modified
+      if (_modifiedCategories.isNotEmpty) {
+        for (int i = 0; i < _categories.length; i++) {
+          await widget.menuService.updateCategory(
+            id: _categories[i].id,
+            sortOrder: i,
+          );
+        }
+      }
+
+      // Save item order for modified categories
+      for (final categoryId in _modifiedItemCategories) {
+        final items = _itemsByCategory[categoryId]!;
+        for (int i = 0; i < items.length; i++) {
+          await widget.menuService.updateItem(
+            id: items[i].id,
+            sortOrder: i,
+          );
+        }
+      }
+
+      // Notify parent to refresh data
+      await widget.onSave();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving changes: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
 }

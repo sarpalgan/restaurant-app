@@ -129,6 +129,8 @@ Before finalizing, verify:
       final userPrompt = _buildUserPrompt(dishName, description);
 
       debugPrint('Sending image generation request to Gemini API...');
+      debugPrint('Dish name: $dishName');
+      debugPrint('Description: $description');
 
       final uri = Uri.https(
         'generativelanguage.googleapis.com',
@@ -184,6 +186,13 @@ Before finalizing, verify:
         debugPrint('Gemini API error: ${response.statusCode} - ${response.data}');
         return null;
       }
+    } on DioException catch (e) {
+      debugPrint('AI Image generation failed: $e');
+      if (e.response != null) {
+        debugPrint('Response status: ${e.response?.statusCode}');
+        debugPrint('Response data: ${e.response?.data}');
+      }
+      return null;
     } catch (e) {
       debugPrint('AI Image generation failed: $e');
       return null;

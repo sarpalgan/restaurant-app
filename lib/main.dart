@@ -5,6 +5,7 @@ import 'package:flutter_stripe/flutter_stripe.dart';
 
 import 'app.dart';
 import 'core/config/app_config.dart';
+import 'services/background_ai_service.dart';
 import 'services/notification_service.dart';
 
 Future<void> main() async {
@@ -25,9 +26,17 @@ Future<void> main() async {
   // Initialize notification service for background AI processing
   await NotificationService().initialize();
 
+  // Create the provider container
+  final container = ProviderContainer();
+  
+  // Set up the background AI service with the provider container
+  // This allows it to save results even when UI is not active
+  BackgroundAIService.setProviderContainer(container);
+
   runApp(
-    const ProviderScope(
-      child: FoodArtApp(),
+    UncontrolledProviderScope(
+      container: container,
+      child: const FoodArtApp(),
     ),
   );
 }

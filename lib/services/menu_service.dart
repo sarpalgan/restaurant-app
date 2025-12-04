@@ -9,7 +9,7 @@ final menuCategoriesProvider = FutureProvider.family<List<MenuCategory>, String>
       .from('menu_categories')
       .select('*, menu_category_translations(*)')
       .eq('restaurant_id', restaurantId)
-      .order('sort_order');
+      .order('sort_order', ascending: true);
 
   return (response as List).map((json) => MenuCategory.fromSupabase(json)).toList();
 });
@@ -20,7 +20,7 @@ final menuItemsProvider = FutureProvider.family<List<MenuItem>, String>((ref, ca
       .from('menu_items')
       .select('*, menu_item_translations(*), menu_item_variants(*, menu_item_variant_translations(*))')
       .eq('category_id', categoryId)
-      .order('sort_order');
+      .order('sort_order', ascending: true);
 
   return (response as List).map((json) => MenuItem.fromSupabase(json)).toList();
 });
@@ -112,6 +112,43 @@ class MenuService {
 
   Future<void> deleteCategory(String id) async {
     await supabase.from('menu_categories').delete().eq('id', id);
+  }
+
+  /// Fix reversed sort orders for all categories and items in a restaurant.
+  /// This renumbers everything based on their current order in the database.
+  Future<void> fixSortOrders(String restaurantId) async {
+    // Get all categories ordered by current sort_order
+    final categoriesResponse = await supabase
+        .from('menu_categories')
+        .select('id')
+        .eq('restaurant_id', restaurantId)
+        .order('sort_order', ascending: true);
+    
+    // Renumber categories
+    final categories = categoriesResponse as List;
+    for (int i = 0; i < categories.length; i++) {
+      await supabase
+          .from('menu_categories')
+          .update({'sort_order': i})
+          .eq('id', categories[i]['id']);
+    }
+
+    // Get all items for each category and renumber
+    for (final category in categories) {
+      final itemsResponse = await supabase
+          .from('menu_items')
+          .select('id')
+          .eq('category_id', category['id'])
+          .order('sort_order', ascending: true);
+      
+      final items = itemsResponse as List;
+      for (int i = 0; i < items.length; i++) {
+        await supabase
+            .from('menu_items')
+            .update({'sort_order': i})
+            .eq('id', items[i]['id']);
+      }
+    }
   }
 
   Future<void> addCategoryTranslation({
@@ -240,6 +277,23 @@ class MenuService {
     }
 
     return MenuItem.fromSupabase(response);
+  }
+
+  /// Fetches a single menu item by ID with all translations and variants
+  Future<MenuItem?> getItemById(String id) async {
+    try {
+      final response = await supabase
+          .from('menu_items')
+          .select('*, menu_item_translations(*), menu_item_variants(*, menu_item_variant_translations(*))')
+          .eq('id', id)
+          .maybeSingle();
+      
+      if (response == null) return null;
+      return MenuItem.fromSupabase(response);
+    } catch (e) {
+      print('Error fetching menu item by ID: $e');
+      return null;
+    }
   }
 
   Future<void> deleteItem(String id) async {

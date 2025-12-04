@@ -426,7 +426,7 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Please wait while AI analyzes your menu...',
+                      'This may take a few minutes...',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: Colors.grey,
                       ),
@@ -449,6 +449,41 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
           Text(
             '${(_progress * 100).toInt()}%',
             style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          // Continue in background option
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'You can close this page and continue using the app. '
+                    'We\'ll notify you when the analysis is complete!',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.blue[700],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _continueInBackground,
+            icon: const Icon(Icons.arrow_back),
+            label: const Text('Continue in Background'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+            ),
           ),
         ],
       ),
@@ -1033,17 +1068,29 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
     final notificationService = NotificationService();
     await notificationService.initialize();
 
+    // Get restaurant for saving result later
+    final restaurant = await ref.read(currentRestaurantProvider.future);
+    final restaurantId = restaurant?.id ?? 'unknown';
+
     try {
       final backgroundService = BackgroundAIService();
       
       // Start analysis with background support
+      // The service will automatically save results to provider when complete,
+      // even if user navigates away
       final stream = backgroundService.analyzeInBackground(
         images: _selectedImages,
+        restaurantId: restaurantId,
       );
 
       // Listen to progress updates
       await for (final update in stream) {
-        if (!mounted) break;
+        if (!mounted) {
+          // User navigated away - analysis continues in background
+          // Result will be saved automatically by BackgroundAIService
+          debugPrint('User navigated away, analysis continues in background');
+          break;
+        }
 
         setState(() {
           _currentStatus = update.statusMessage ?? '';
@@ -1076,6 +1123,24 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
         );
       }
     }
+  }
+
+  /// Continue analysis in background and navigate away
+  /// The analysis will continue running and user will get a notification when done
+  void _continueInBackground() {
+    // Show confirmation and navigate back
+    // The analysis is already running via BackgroundAIService which handles
+    // background processing and notifications automatically
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Analysis continues in background. You\'ll be notified when it\'s done!'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 3),
+      ),
+    );
+
+    // Navigate back to menu management
+    context.go('/admin/menu');
   }
 
   void _startOver() {
@@ -1384,15 +1449,18 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
       }
 
       // Step 3: Create new items
+      // Sort selected items by their original index to preserve menu order
+      final sortedSelectedItems = _selectedItems.toList()..sort();
       final itemDisplayOrders = <String, int>{};
-      for (final index in _selectedItems) {
+      for (final index in sortedSelectedItems) {
         final item = result.items[index];
         final categoryId = createdCategories[item.category];
         
         if (categoryId == null) continue;
 
         // Track display order per category
-        itemDisplayOrders[categoryId] = (itemDisplayOrders[categoryId] ?? 0) + 1;
+        final itemSortOrder = itemDisplayOrders[categoryId] ?? 0;
+        itemDisplayOrders[categoryId] = itemSortOrder + 1;
 
         final createdItem = await menuService.createItem(
           categoryId: categoryId,
@@ -1400,7 +1468,7 @@ class _AIMenuCreatorPageState extends ConsumerState<AIMenuCreatorPage> {
           name: item.translatedNames['en'] ?? item.name,
           description: item.translatedDescriptions['en'] ?? item.description,
           price: item.price,
-          sortOrder: item.sortOrder,
+          sortOrder: itemSortOrder,  // Use sequential order within category
         );
 
         // Add translations (skip 'en' as it's already added by createItem)
