@@ -90,6 +90,44 @@ class NotificationService {
     );
   }
 
+  /// Show a notification for AI image generation completion
+  Future<void> showAIImageComplete({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    if (!_isInitialized) await initialize();
+
+    const androidDetails = AndroidNotificationDetails(
+      'ai_image_channel',
+      'AI Image Generation',
+      channelDescription: 'Notifications for AI image generation completion',
+      importance: Importance.high,
+      priority: Priority.high,
+      showWhen: true,
+      icon: '@mipmap/ic_launcher',
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notifications.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000, // Unique ID
+      title,
+      body,
+      details,
+      payload: payload,
+    );
+  }
+
   /// Show a progress notification
   Future<void> showProgress({
     required int id,

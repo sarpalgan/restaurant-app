@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../../core/models/menu.dart';
 import '../../../../core/routing/app_router.dart';
 import '../../../../l10n/app_localizations.dart';
-import '../../../../services/ai_image_service.dart';
+import '../../../../services/background_ai_image_service.dart';
 import '../../../../services/image_service.dart';
 import '../../../../services/language_service.dart';
 import '../../../../services/menu_service.dart';
@@ -1229,8 +1229,12 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
       return;
     }
     
-    final dishName = _nameController.text.trim();
-    if (dishName.isEmpty) {
+    // ALWAYS use English name and description for AI prompts for consistency
+    final englishTranslation = widget.item.translations['en'];
+    final dishNameEnglish = englishTranslation?.name ?? _nameController.text.trim();
+    final descriptionEnglish = englishTranslation?.description ?? _descriptionController.text.trim();
+    
+    if (dishNameEnglish.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter a dish name first'),
@@ -1243,51 +1247,106 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
     setState(() => _isGeneratingAiImage = true);
     
     try {
-      final aiImageService = ref.read(aiImageServiceProvider);
-      final description = _descriptionController.text.trim();
+      // Use BackgroundAIImageService for auto-save and background processing
+      final backgroundService = ref.read(backgroundAIImageServiceProvider);
       
-      final generatedImageBase64 = await aiImageService.generateFoodImage(
+      // Start background job - this will continue even if user closes the sheet
+      final jobId = await backgroundService.startGenerationJob(
+        menuItemId: widget.item.id,
+        dishNameEnglish: dishNameEnglish,
+        descriptionEnglish: descriptionEnglish.isEmpty ? null : descriptionEnglish,
         referenceImageBase64: _originalUploadedImage!,
-        dishName: dishName,
-        description: description.isEmpty ? null : description,
       );
       
-      if (generatedImageBase64 != null && mounted) {
-        setState(() {
-          // Add to AI gallery (no original in this list anymore)
-          _aiGeneratedImages.add(generatedImageBase64);
-          // Auto-select the newly generated image
-          _currentImageUrl = generatedImageBase64;
-          _selectedAiImageIndex = _aiGeneratedImages.length - 1;
-        });
-        
+      debugPrint('Started AI image generation job: $jobId');
+      
+      // Show notification that generation started
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('AI image generated successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to generate AI image. Please try again.'),
-            backgroundColor: Colors.red,
+            content: Text('AI image generation started. You can close this - it will continue in background.'),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 4),
           ),
         );
       }
+      
+      // Listen for completion in background
+      _listenForImageGeneration(jobId);
+      
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error generating AI image: $e'),
+            content: Text('Error starting AI image generation: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isGeneratingAiImage = false);
+      }
+    }
+  }
+  
+  /// Listen for AI image generation completion and update UI
+  void _listenForImageGeneration(String jobId) {
+    final backgroundService = ref.read(backgroundAIImageServiceProvider);
+    
+    // Listen to the jobs stream for updates
+    backgroundService.jobsStream.listen((jobs) {
+      final job = jobs[jobId];
+      if (job == null) return;
+      
+      if (job.status == AIImageJobStatus.completed && mounted) {
+        // Image was generated and auto-saved to database
+        // Reload the item to get the updated AI images
+        _reloadItemData();
+        
+        setState(() => _isGeneratingAiImage = false);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('AI image generated and saved!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (job.status == AIImageJobStatus.failed && mounted) {
+        setState(() => _isGeneratingAiImage = false);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('AI image failed: ${job.error ?? "Unknown error"}'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    } finally {
+    });
+  }
+  
+  /// Reload item data from database to get updated AI images
+  Future<void> _reloadItemData() async {
+    try {
+      // Invalidate the menu items provider to refresh the data
+      ref.invalidate(menuItemsProvider(widget.categoryId));
+      
+      // Get the updated item
+      final updatedItems = await ref.read(menuItemsProvider(widget.categoryId).future);
+      final updatedItem = updatedItems.firstWhere(
+        (item) => item.id == widget.item.id,
+        orElse: () => widget.item,
+      );
+      
+      // Update local state with new AI images
       if (mounted) {
-        setState(() => _isGeneratingAiImage = false);
+        setState(() {
+          _aiGeneratedImages = List<String>.from(updatedItem.aiGeneratedImages);
+          _selectedAiImageIndex = updatedItem.selectedAiImageIndex;
+          if (_aiGeneratedImages.isNotEmpty) {
+            _currentImageUrl = _aiGeneratedImages[_selectedAiImageIndex.clamp(0, _aiGeneratedImages.length - 1)];
+          }
+        });
       }
+    } catch (e) {
+      debugPrint('Error reloading item data: $e');
     }
   }
   
@@ -1304,6 +1363,7 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
       return;
     }
     
+    // Get current language name for display
     final dishName = _nameController.text.trim();
     if (dishName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1315,7 +1375,11 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
       return;
     }
     
-    final description = _descriptionController.text.trim();
+    // Get English translations for AI (always use English for consistency)
+    final englishTranslation = widget.item.translations['en'];
+    final dishNameEnglish = englishTranslation?.name ?? dishName;
+    final descriptionEnglish = englishTranslation?.description ?? _descriptionController.text.trim();
+    
     final theme = Theme.of(context);
     final imageService = ref.read(imageServiceProvider);
     
@@ -1378,9 +1442,9 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
               
               const SizedBox(height: 16),
               
-              // Dish name
+              // Dish name (English for AI)
               Text(
-                'Dish Name:',
+                'Dish Name (English for AI):',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.grey[700],
@@ -1395,16 +1459,16 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  dishName,
+                  dishNameEnglish,
                   style: const TextStyle(fontSize: 14),
                 ),
               ),
               
               const SizedBox(height: 12),
               
-              // Description
+              // Description (English for AI)
               Text(
-                'Description:',
+                'Description (English for AI):',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.grey[700],
@@ -1420,16 +1484,44 @@ class _EditItemSheetState extends ConsumerState<_EditItemSheet> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  description.isEmpty ? '(No description provided)' : description,
+                  descriptionEnglish.isEmpty ? '(No description provided)' : descriptionEnglish,
                   style: TextStyle(
                     fontSize: 14,
-                    fontStyle: description.isEmpty ? FontStyle.italic : FontStyle.normal,
-                    color: description.isEmpty ? Colors.grey : null,
+                    fontStyle: descriptionEnglish.isEmpty ? FontStyle.italic : FontStyle.normal,
+                    color: descriptionEnglish.isEmpty ? Colors.grey : null,
                   ),
                 ),
               ),
               
               const SizedBox(height: 16),
+              
+              // Background processing note
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.cloud_sync, size: 18, color: Colors.blue[700]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Image will be generated in background and auto-saved. You can close this window - you\'ll get a notification when done.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue[900],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 12),
               
               // Warning note
               Container(

@@ -191,11 +191,12 @@ Before finalizing, verify:
   }
 
   /// Build the user prompt with dish name and description
+  /// Note: dishName and description should ALWAYS be in English for consistent AI results
   String _buildUserPrompt(String dishName, String? description) {
     final buffer = StringBuffer();
     buffer.writeln('Dish name: **$dishName**');
     if (description != null && description.isNotEmpty) {
-      buffer.writeln('Description: **{$description}**');
+      buffer.writeln('Description: **$description**');
     }
     return buffer.toString();
   }
